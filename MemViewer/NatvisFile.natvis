@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?> 
+<AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
+  <Type Name="NodeRef">
+    <DisplayString>{index}, {(tree._Ptr->root + index)->parent.index}</DisplayString>
+    <Expand>
+      <Item Name="Node" ExcludeView="simple">(tree._Ptr->root + index)</Item>
+    </Expand>
+  </Type>
+</AutoVisualizer>

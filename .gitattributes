@@ -1,0 +1,2 @@
+/MemoryTraceParser/MemoryTraceParser.xcodeproj/allocations filter=lfs diff=lfs merge=lfs -text
+/MemoryTraceParser/MemoryTraceParser.xcodeproj/stacks filter=lfs diff=lfs merge=lfs -text

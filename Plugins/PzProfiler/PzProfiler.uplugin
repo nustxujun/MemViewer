@@ -1,0 +1,32 @@
+{
+	"FileVersion": 1,
+	"Version": 1,
+	"VersionName": "0.0.0.1",
+	"FriendlyName": "",
+	"Description": "",
+	"Category": "",
+	"CreatedBy": "",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"EnabledByDefault": true,
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"Installed": true,
+	"Modules": [
+		{
+			"Name": "PzProfiler",
+			"Type": "Runtime",
+			"LoadingPhase": "EarliestPossible",
+			"BlacklistTargets": [ "Server" ],
+			"BlacklistPlatforms": [
+				"Linux"
+			]
+		}
+
+	],
+	"Plugins": [
+
+	]
+}
