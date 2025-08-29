@@ -544,8 +544,8 @@ void TimelineComp::Show()
 	auto size = ImGui::GetContentRegionAvail();
 	auto end_pos = ImVec2(start_pos.x + size.x, start_pos.y + size.y);
 
-	const ImVec2 mouse_pos_in_canvas(io.MousePos.x - canvas_p0.x, io.MousePos.y - canvas_p0.y);
-	const bool is_in_canvas = io.MousePos.x >= canvas_p0.x && io.MousePos.x <= canvas_p1.x && io.MousePos.y <= canvas_p1.y && io.MousePos.y > canvas_p0.y;
+	const ImVec2 mouse_pos_in_canvas(io.MousePos.x - start_pos.x, io.MousePos.y - start_pos.y);
+	const bool is_in_canvas = io.MousePos.x >= start_pos.x && io.MousePos.x <= end_pos.x && io.MousePos.y <= end_pos.y && io.MousePos.y > start_pos.y;
 
 	// bg
 	draw_list->AddRectFilled(start_pos, end_pos, IM_COL32(50, 50, 50, 255));
