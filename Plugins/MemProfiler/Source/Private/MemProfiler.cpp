@@ -83,7 +83,7 @@ static auto GetStartCommandLine = []() {
 #endif
 
 
-class FPzProfilerModule : public IModuleInterface
+class FMemProfilerModule : public IModuleInterface
 {
 public:
     void StartupModule() override
@@ -91,7 +91,7 @@ public:
 		
 		if (bEnableProfiler)
 		{
-			UE_LOG(LogCore, Log, TEXT("PzProfiler is enabled."));
+			UE_LOG(LogCore, Log, TEXT("Profiler is enabled."));
 		}
 		else
 			return;
@@ -124,4 +124,4 @@ public:
 };
 
 
-IMPLEMENT_MODULE( FPzProfilerModule, PzProfiler )
+IMPLEMENT_MODULE( FMemProfilerModule, MemProfiler )

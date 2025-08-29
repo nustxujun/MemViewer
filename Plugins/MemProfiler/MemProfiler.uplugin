@@ -16,7 +16,7 @@
 	"Installed": true,
 	"Modules": [
 		{
-			"Name": "PzProfiler",
+			"Name": "MemProfiler",
 			"Type": "Runtime",
 			"LoadingPhase": "EarliestPossible",
 			"BlacklistTargets": [ "Server" ],

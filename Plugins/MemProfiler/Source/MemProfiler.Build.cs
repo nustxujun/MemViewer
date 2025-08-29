@@ -3,9 +3,9 @@
 using System.IO;
 using UnrealBuildTool;
 
-public class PzProfiler : ModuleRules
+public class MemProfiler : ModuleRules
 {
-	public PzProfiler( ReadOnlyTargetRules Target ) : base( Target )
+	public MemProfiler( ReadOnlyTargetRules Target ) : base( Target )
 	{
 		PublicDependencyModuleNames.AddRange( new string[] { "Core",  "CoreUObject", "RenderCore","Engine"} );
 		PrivateDependencyModuleNames.AddRange( new string[] 
