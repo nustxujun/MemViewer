@@ -22,7 +22,7 @@
 #include "MemoryTraceParser.h"
 #include "SymbolParser.h"
 
-#define LATEST_VERSION 6
+#define LATEST_VERSION 7
 #define VERSION LATEST_VERSION
 
 #define VER_GRT_EQ(x) (VERSION >= x)
@@ -95,6 +95,8 @@ struct FrameInfo
     uint64_t used;
     uint64_t available;
     int64_t overhead;
+    
+    std::map<std::string, uint32_t> customs;
 };
 
 struct RhiInfo
@@ -438,6 +440,10 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
         str.resize(len, 0);
         f.read(str.data(),len);
         return str;
+    };
+    
+    auto skip_buffer = [](auto& f, size_t size){
+        f.seekg(size, std::ios::beg);
     };
 	std::fstream alloc_file = std::fstream(file_names.alloc_file_path, std::ios::in | std::ios::binary);
 	std::fstream stack_file = std::fstream(file_names.callstack_file_path,std::ios::in | std::ios::binary);
@@ -988,6 +994,33 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
             read_buffer(frame_file,info.used);
             read_buffer(frame_file, info.available);
             read_buffer(frame_file, info.overhead);
+#if VER_GRT_EQ(7)
+            uint32_t len = 0;
+            read_buffer(frame_file, len);
+            if (len != 0)
+            {
+                int platform ;
+                read_buffer(frame_file, platform);
+                
+                if (platform == 2)// ios
+                {
+                    int count;
+                    read_buffer(frame_file, count);
+                    
+                    for (int i = 0; i < count; ++i)
+                    {
+                        std::string name = read_string(frame_file);
+                        int size;
+                        read_buffer(frame_file, size);
+                        info.customs[name] = size;
+                    }
+                }
+                else
+                {
+                    skip_buffer(frame_file,len - 4);
+                }
+            }
+#endif
             frames.push_back(info);
         }
     }
@@ -1218,6 +1251,15 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
         write(info.used);
         write(info.available);
         write(info.overhead);
+#if VER_GRT_EQ(7)
+        int count = info.customs.size();
+        write(count);
+        for (auto& i : info.customs)
+        {
+            write_string(i.first);
+            write(i.second);
+        }
+#endif
     }
     
     object_fut.Sync();
