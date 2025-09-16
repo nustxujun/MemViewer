@@ -8,9 +8,7 @@
 
 #include <vector>
 #include <format>
-
-
-
+#include <random>
 void TimelineView::InitializeImpl()
 {
     frames.clear();
@@ -32,27 +30,18 @@ void TimelineView::InitializeImpl()
     size_vec.resize(count);
 
 
-    ParallelTask([&](int idx){
-        if (idx == 0)
+    for (auto& alloc : trace->getTotalAllocs())
+    {
+        auto end = std::min<int>(alloc.end, range.end);
+
+        Assert(alloc.size < 1024 * 1024 * 1024, "invalid trace data");
+        EXIT_IF_STOPED()
+
+        for (int i = alloc.start; i ALLOC_END_CMP(<= , < ) end; ++i)
         {
-            for (auto& alloc : trace->getTotalAllocs())
-            {
-                auto end = std::min<int>(alloc.end, range.end);
-
-                Assert(alloc.size < 1024 * 1024 * 1024, "invalid trace data");
-                EXIT_IF_STOPED()
-
-                    for (int i = alloc.start; i ALLOC_END_CMP(<= , < ) end; ++i)
-                    {
-                        size_vec[i - range.begin] += alloc.size;
-                    }
-            }
+            size_vec[i - range.begin] += alloc.size;
         }
-        else if (idx == 1)
-        {
-
-        }
-    }, 2);
+    }
 
 
 
@@ -62,32 +51,135 @@ void TimelineView::InitializeImpl()
     for (auto size : size_vec)
     {
         auto total_size = (size ) * inv;
-        //max_size = std::max(max_size, total_size);
         frames.push_back(total_size );
     }
 
-    uint64_t total_max = 0;
-    if (trace->getMemoryInfos().size() > 0)
-    {
-        total_max = trace->getMemoryInfos()[0].used + trace->getMemoryInfos()[0].available;
-        total_scaling = 1.0f / total_max;
-    }
-
-    for (auto& size : trace->getMemoryInfos())
-    {
-        max_size = std::max(max_size, size.used * inv);
-    }
-
-    if (trace->getTotalAllocs().size() == 0)
-    {
-        frames.clear();
-        for (auto& size : trace->getMemoryInfos())
-        {
-            frames.push_back(size.used * inv);
-        }
-    }
-
     scrolling = {0,0};
+
+
+    {
+        TimelineComp::TimelineData data;
+        data.datas = frames;
+        data.datas.resize(count);
+        data.color = IM_COL32(255, 200, 0, 200);
+        data.type = TimelineComp::TimelineData::Bar;
+        data.name = "trk";
+        component.setDatas(0, std::move(data));
+    }
+
+    
+    {
+        TimelineComp::TimelineData data;
+        data.color = IM_COL32(255, 0, 0, 255);
+        data.type = TimelineComp::TimelineData::Line;
+        data.name = "phy";
+        data.datas.reserve(trace->getMemoryInfos().size());
+        data.order = 1000;
+        for (auto& info : trace->getMemoryInfos())
+        {
+            data.datas.push_back(info.used / 1024.0f / 1024.0f);
+        }
+
+        component.setDatas(1, std::move(data));
+    }
+
+
+    int cur_idx = 2;
+
+    {
+        std::map<std::string, std::vector<float>> custom_datas;
+
+
+        uint32_t size = 0;
+        for (auto& info : trace->getMemoryInfos())
+        {
+            size++;
+            for (auto& data : info.custom_datas)
+            {
+                custom_datas[data.first].resize(size);
+                custom_datas[data.first][size - 1] = (data.second / 1024.0f / 1024.0f);
+            }
+        }
+
+        const int numColors = custom_datas.size();
+        int index = 0;
+
+        auto hslToRgb = [](float h, float s, float l) ->std::tuple<int, int, int>
+        {
+            float c = (1 - std::fabs(2 * l - 1)) * s;
+            float x = c * (1 - std::fabs(fmod(h / 60.0, 2) - 1));
+            float m = l - c / 2;
+
+            float r, g, b;
+            if (h >= 0 && h < 60) {
+                r = c; g = x; b = 0;
+            }
+            else if (h >= 60 && h < 120) {
+                r = x; g = c; b = 0;
+            }
+            else if (h >= 120 && h < 180) {
+                r = 0; g = c; b = x;
+            }
+            else if (h >= 180 && h < 240) {
+                r = 0; g = x; b = c;
+            }
+            else if (h >= 240 && h < 300) {
+                r = x; g = 0; b = c;
+            }
+            else {
+                r = c; g = 0; b = x;
+            }
+
+            int R = static_cast<int>((r + m) * 255);
+            int G = static_cast<int>((g + m) * 255);
+            int B = static_cast<int>((b + m) * 255);
+            return { R, G, B };
+        };
+
+        auto get_color = [&]() {
+            float hueStep = 360.0 / numColors;
+            float saturation = 0.1 + index % 3 * 0.2; 
+            float lightness = 0.5;
+
+            float hue = index++ * hueStep; 
+            auto rgb = hslToRgb(hue, saturation, lightness);
+            return IM_COL32(std::get<0>(rgb), std::get<1>(rgb), std::get<2>(rgb), 255);
+        };
+
+        for (auto& info : custom_datas)
+        {
+            TimelineComp::TimelineData data;
+            data.color = get_color();
+            data.type = TimelineComp::TimelineData::Bar;
+            data.name = info.first;
+            data.datas = std::move(info.second);
+            data.visible = false;
+            data.stacking = true;
+            component.setDatas(cur_idx++, std::move(data));
+        }
+
+
+    }
+
+
+
+    //AddTask( [this, trace, range]() {
+    //    auto& frames = component.datas[0].datas;
+    //    float inv = 1.0f / 1024.0f / 1024.0f;
+    //    for (auto& alloc : trace->getTotalAllocs())
+    //    {
+    //        auto end = std::min<int>(alloc.end, range.end);
+
+    //        Assert(alloc.size < 1024 * 1024 * 1024, "invalid trace data");
+    //        EXIT_IF_STOPED()
+
+    //            for (int i = alloc.start; i ALLOC_END_CMP(<= , < ) end; ++i)
+    //            {
+    //                frames[i - range.begin] += alloc.size * inv;
+    //            }
+    //    }
+    //});
+
 }
 
 void TimelineView::ShowImpl()
@@ -115,8 +207,8 @@ void TimelineView::ShowImpl()
         if (ImGui::Button(cp.text.c_str()))
         {
             select_range_cb(1, cp.frameid);
-            dragging_start = 0;
-            dragging_end = cp.frameid - base_frame;
+            component.dragging_start = 0;
+            component.dragging_end = cp.frameid - base_frame;
         }
         if (cp_idx < cp_count)
         {
@@ -124,6 +216,129 @@ void TimelineView::ShowImpl()
         }
     }
     ImGui::EndChild();
+
+    ImGui::BeginChild("list", {200,0}, ImGuiChildFlags_ResizeX);
+        
+    if (ImGui::BeginTable("list", 2))
+    {
+        struct DataTree
+        {
+            std::string name;
+            std::vector<TimelineComp::TimelineData*> datas;
+        };
+
+
+        std::vector<DataTree> tree;
+        [&](){
+            DataTree base, mlc, gpu, otr,seg;
+            base.name = "base";
+            mlc.name = "malloc";
+            gpu.name = "gpu";
+            seg.name = "segment";
+            otr.name = "other";
+
+            for (auto& data : component.datas)
+            {
+                if (data.name == "trk" || data.name == "phy")
+                {
+                    base.datas.push_back(&data);
+                }
+                else if (data.name.find("MALLOC_") == 0)
+                {
+                    mlc.datas.push_back(&data);
+                }
+                else if (data.name == "IOAccelerator" || data.name == "IOSurface")
+                {
+                    gpu.datas.push_back(&data);
+                }
+                else if (data.name.find("__") == 0)
+                {
+                    seg.datas.push_back(&data);
+                }
+                else
+                {
+                    otr.datas.push_back(&data);
+                }
+            }
+
+            tree = {base, mlc, gpu, seg, otr };
+        }();
+            
+         for (auto& d : tree)
+         {
+             ImGui::TableNextRow();
+             ImGui::TableSetColumnIndex(0);
+             auto open = ImGui::TreeNodeEx(d.name.c_str());
+             ImGui::TableSetColumnIndex(1);
+
+             ImGui::PushID(d.name.c_str());
+             if (ImGui::Button("show all"))
+             {
+                 for (auto& i : d.datas)
+                 {
+                     i->visible = true;
+                 }
+             }
+             ImGui::SameLine();
+
+             if (ImGui::Button("hide all"))
+             {
+                 for (auto& i : d.datas)
+                 {
+                     i->visible = false;
+                 }
+             }
+
+             ImGui::PopID();
+             if (open)
+             {
+
+
+                 for (auto& i : d.datas)
+                 {
+                     ImGui::TableNextRow();
+                     ImGui::TableSetColumnIndex(0);
+                     ImGui::PushStyleColor(ImGuiCol_Text, i->color);
+                     ImGui::Selectable(i->name.c_str(), &i->visible, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap);
+                     ImGui::PopStyleColor();
+                     ImGui::TableSetColumnIndex(1);
+                     ImGui::PushID(i->name.c_str() + 1);
+                     ImGui::Checkbox("stacking", &i->stacking);
+                     ImGui::PopID();
+                 }
+                 ImGui::TreePop();
+             }
+
+           
+         }
+
+   //     for (auto& i : component.datas)
+   //     {
+   //         ImGui::TableNextRow();
+   //         ImGui::TableSetColumnIndex(0);
+			//ImGui::Selectable(i.name.c_str(),&i.visible, ImGuiSelectableFlags_SpanAllColumns |ImGuiSelectableFlags_AllowOverlap);
+   //         ImGui::TableSetColumnIndex(1);
+   //         ImGui::PushID(i.name.c_str() + 1);
+   //         ImGui::Checkbox("stacking", &i.stacking);
+   //         ImGui::PopID();
+
+   //     }
+
+
+        ImGui::EndTable();
+    }
+
+    ImGui::EndChild();
+
+
+	ImGui::SameLine();
+
+    component.Show(0, 0, [&](int begin, int end, bool active) {
+        if (active)
+            select_range_cb(begin + base_frame, end + base_frame);
+        });
+
+    return;
 
     ImGui::BeginChild("Canvas");
 

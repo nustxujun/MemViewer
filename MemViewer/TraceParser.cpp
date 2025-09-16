@@ -76,7 +76,7 @@ bool TraceData::ParseTraceFile(const std::string& path, TraceData* trace)
 	auto read = [&](auto& val){
 		if (cur_pos + sizeof(val) > end_pos)
 		{
-			Check(false);
+			Error("out of range");
 			return false;
 		}
 
@@ -105,10 +105,21 @@ bool TraceData::ParseTraceFile(const std::string& path, TraceData* trace)
 	{
 		if (cur_pos + size > end_pos)
 		{
-			Check(false);
+			Error("out of range");
 			return false;
 		}
 		memcpy(data, cur_pos, size);
+		cur_pos += size;
+		return true;
+	};
+
+	auto skip = [&](auto size){
+		if (cur_pos + size > end_pos)
+		{
+			Error("out of range");
+			return false;
+		}
+
 		cur_pos += size;
 		return true;
 	};
@@ -211,6 +222,11 @@ bool TraceData::ParseTraceFile(const std::string& path, TraceData* trace)
 		read(ai.start);
 		read(ai.end);
 
+		if (version >= 8)
+		{
+			read(ai.user_tag);
+		}
+
 		if (ai.end == 0)
 			zero_end.push_back((uint32_t)allocs.size());
 		else
@@ -251,9 +267,9 @@ bool TraceData::ParseTraceFile(const std::string& path, TraceData* trace)
 
 	std::vector<TotalInfo> totals;
 	std::vector<ObjectInfo> objects;
-	// frame info
 	if (version >= 2)
 	{
+		// frame info
 		uint32_t num_frame = 0;
 		read(num_frame);
 
@@ -265,6 +281,21 @@ bool TraceData::ParseTraceFile(const std::string& path, TraceData* trace)
 			read(info.available);
 			if (version > 2)
 				read(info.overhead);
+
+			if (version >= 7)
+			{
+				int count;
+				read(count);
+				for (int j = 0; j < count; ++j)
+				{
+					auto key = read_string();
+					uint32_t value;
+					read(value);
+					info.custom_datas.emplace(std::move(key), value);
+				}
+			}
+
+
 			totals.push_back(info);
 		}
 

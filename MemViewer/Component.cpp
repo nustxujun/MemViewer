@@ -5,6 +5,9 @@
 #include <fstream>
 #include <regex>
 
+#pragma optimize("", off)
+
+
 bool FilterComp::Show(int flag) 
 {
 	ImGui::PushID(this);
@@ -530,33 +533,358 @@ void ModalWindow::ProcessModalWindow()
 
 
 
-void TimelineComp::Show()
+void TimelineComp::Show(float width, float height, OnEvnet&& evn)
 {
 	ImGuiIO& io = ImGui::GetIO();
 	ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
 
-	ImGui::BeginChild("timeline");
-	const bool is_active = ImGui::IsItemActive();   // Held
-	const bool is_focus = ImGui::IsItemFocused();
+	ImGui::BeginChild("timeline", { width , height});
 
-	auto start_pos = ImGui::GetCursorScreenPos(); 
+	auto start_pos = ImGui::GetCursorScreenPos();
+	start_pos.x += 1;
+	start_pos.y += 1;
 	auto size = ImGui::GetContentRegionAvail();
 	auto end_pos = ImVec2(start_pos.x + size.x, start_pos.y + size.y);
 
+	ImGui::InvisibleButton("canvas", size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+	const bool is_active = ImGui::IsItemActive();   // Held
+	const bool is_focus = ImGui::IsItemFocused();
+
+
+
 	const ImVec2 mouse_pos_in_canvas(io.MousePos.x - start_pos.x, io.MousePos.y - start_pos.y);
 	const bool is_in_canvas = io.MousePos.x >= start_pos.x && io.MousePos.x <= end_pos.x && io.MousePos.y <= end_pos.y && io.MousePos.y > start_pos.y;
+
+	// clip
+	draw_list->PushClipRect({ start_pos.x + 1, start_pos.y + 1}, {end_pos.x - 1, end_pos.y - 1}, true);
 
 	// bg
 	draw_list->AddRectFilled(start_pos, end_pos, IM_COL32(50, 50, 50, 255));
 	draw_list->AddRect(start_pos, end_pos, IM_COL32(255, 255, 255, 255));
 
+	// scrolling 
+	const float mouse_threshold_for_pan = true ? -1.0f : 0.0f;
+	if (is_active && ImGui::IsMouseDragging(ImGuiMouseButton_Right, mouse_threshold_for_pan))
+	{
+		scrolling.x += io.MouseDelta.x;
+		scrolling.y += io.MouseDelta.y;
+	}
+
+	if (is_in_canvas && io.MouseWheel != 0)
+	{
+		auto len = (mouse_pos_in_canvas.x - scrolling.x) * freq;
+
+		int diff = std::max<int>(1.0f, freq * 0.1f);
+		if (io.MouseWheel > 0)
+		{
+			freq += diff;
+		}
+		else
+		{
+			freq = std::max(1, freq - diff);
+		}
+
+		scrolling.x = mouse_pos_in_canvas.x - len / freq;
+	}
+
+	//if (/*is_focus &&*/ io.MousePos.x >= start_pos.x && io.MousePos.x <= end_pos.x && is_scrolling)
+	//{
+	//	if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+	//	{
+	//		auto scroll_width = scrollbar_end - scrollbar_start;
+	//		int frame_pos = (io.MousePos.x - start_pos.x - scroll_width * 0.5f) * frames.size() / canvas_sz.x;
+	//		scrolling.x = (-frame_pos * frame_width);
+	//	}
+	//	else
+	//	{
+	//		is_scrolling = false;
+	//	}
+	//}
+
+	// constants
+	const float grid_width = 8;
+	const float frame_width = grid_width / freq;
+	const float local_begin_x = scrolling.x + start_pos.x;
+	const float begin_x = local_begin_x - fmodf(local_begin_x, frame_width);
+	const auto frame_scaling = (size.y * 0.8f) / MaxHight;
+	const auto std_step = frame_scaling * 512;
+	const auto real_frame_width = std::max(1.0f, frame_width <= 3 ? frame_width : frame_width - 1);
+
+
+	uint32_t overlay_frame = std::floor((io.MousePos.x - begin_x) / frame_width);
+
+	int text_frame = -1;
+
+	std::vector<TimelineData*> ordered_datas;
+	for (auto& data : datas)
+	{
+		if (data.type != TimelineData::None && data.visible)
+			ordered_datas.push_back(&data);
+	}
+
+	std::stable_sort(ordered_datas.begin(), ordered_datas.end(), [](auto& a, auto& b) {
+		return a->order < b->order;
+	});
+
+	//data 
+	{
+		std::vector<float> stacking;
+		stacking.resize(Count,0);
+		for (auto& data : ordered_datas)
+		{
+			std::vector<ImVec2> line_points;
+			for (auto frame = 0; frame < Count; ++frame)
+			{
+				auto x = begin_x + frame * frame_width;
+				if (x < start_pos.x)
+					continue;
+
+				if (x > end_pos.x)
+					break;
+
+
+				auto rect_min_y = end_pos.y - data->datas[frame] * frame_scaling;
+
+
+				if (data->type == TimelineData::Bar)
+				{
+					auto p_x = x;
+					auto p_y = rect_min_y;
+					auto p_z = x + real_frame_width;
+					auto p_w = end_pos.y;
+
+					if (data->stacking)
+					{
+						p_y = p_y - stacking[frame];
+						p_w = p_w - stacking[frame];
+
+						stacking[frame] += p_w - p_y;
+					}
+					draw_list->AddRectFilled({p_x, p_y}, {p_z, p_w}, data->color);
+
+					//line_points.push_back({ x ,rect_min_y });
+				}
+				else if (data->type == TimelineData::Line)
+				{
+
+					line_points.push_back({ x + real_frame_width * 0.5f,rect_min_y });
+				}
+
+
+			}
+
+			if (line_points.size() > 0)
+			{
+				if (data->type == TimelineData::Bar)
+				{
+				}
+
+				else
+					draw_list->AddPolyline(line_points.data(), line_points.size(), data->color, 0,2.0f);
+
+				//for (int frame = 0; frame < ((int)line_points.size() - 1); ++frame)
+				//{
+				//	draw_list->AddLine(line_points[frame], line_points[frame + 1], data->color, 2.0f);
+				//}
+			}
+		}
+	}
+
+
+	//drag
+	if (is_in_canvas && !is_scrolling)
+	{
+		if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && !is_dragging && is_focus)
+		{
+			is_dragging = true;
+			dragging_start = overlay_frame;
+		}
+		if (is_dragging)
+		{
+			dragging_end = overlay_frame;
+			if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+			{
+				is_dragging = false;
+				if (dragging_end == dragging_start)
+					dragging_start = 0;
+
+				if (evn)
+				evn(dragging_start , dragging_end, true );
+
+
+			}
+		}
+	}
+
+	// selected
+	{
+
+		auto x0 = begin_x + dragging_start * frame_width;
+		auto x1 = begin_x + dragging_end * frame_width;
+
+		auto min_x = std::min(x0, x1);
+		auto max_x = std::max(x0, x1);
+
+		draw_list->AddRectFilled(ImVec2(min_x, start_pos.y), ImVec2(max_x + frame_width, end_pos.y), IM_COL32(255, 0, 0, 40));
+	}
+
+	//for (float y = end_pos.y, i = 1; y >= (start_pos.y - 20); y -= std_step, i++)
+	//{
+	//	draw_list->AddLine(ImVec2(start_pos.x, y - std_step), ImVec2(end_pos.x, y - std_step), IM_COL32(200, 200, 200, 100));
+
+	//	auto num = std::format("{0} MB", i * 512);
+	//	auto str_len = ImGui::CalcTextSize(num.c_str(), num.c_str() + num.length());
+	//	draw_list->AddText(ImVec2(end_pos.x - str_len.x - 5, y - std_step - str_len.y), IM_COL32(200, 200, 200, 200), num.c_str());
+	//}
+
+
+
+	// graduation
+	{
+		int index = 0;
+		for (auto x = begin_x; x < end_pos.x; x += grid_width, index++)
+		{
+			if (x < 0)
+				continue;
+
+			const auto draw_x = x;
+
+			if (index % 5 == 0)
+			{
+				if (index % 10 == 0)
+				{
+					draw_list->AddLine(ImVec2(draw_x, start_pos.y), ImVec2(draw_x, start_pos.y + 10), IM_COL32(255, 255, 255, 255), 2.0f);
+					auto num = std::format("{0}", index * freq);
+					auto str_len = ImGui::CalcTextSize(num.c_str(), num.c_str() + num.length());
+					draw_list->AddText(ImVec2(draw_x - str_len.x * 0.5f, start_pos.y + 12), IM_COL32_WHITE, num.c_str());
+				}
+				else
+					draw_list->AddLine(ImVec2(draw_x, start_pos.y), ImVec2(draw_x, start_pos.y + 7), IM_COL32(255, 255, 255, 100), 1.0f);
+
+			}
+			else
+			{
+				draw_list->AddLine(ImVec2(draw_x, start_pos.y), ImVec2(draw_x, start_pos.y + 4), IM_COL32(255, 255, 255, 100), 1.0f);
+			}
+
+		}
+
+
+		index = 0;
+		float grid_height = 0;
+		int grid_size = 5;
+		do
+		{
+			grid_size *= 2;
+
+			grid_height = grid_size * frame_scaling;
+		}while(grid_height < 8.0f);
+
+		for (auto y = end_pos.y ; y >= 200; y -= grid_height, index++)
+		{
+			if (y < 0)
+				continue;
+
+			const auto draw_y = y;
+			const auto draw_x = end_pos.x ;
+
+			if (index % 5 == 0)
+			{
+				if (index % 10 == 0)
+				{
+					draw_list->AddLine(ImVec2(draw_x - 10, draw_y), ImVec2(draw_x, draw_y), IM_COL32(255, 255, 255, 255), 2.0f);
+					auto num = std::format("{0}", grid_size * index);
+					auto str_len = ImGui::CalcTextSize(num.c_str(), num.c_str() + num.length());
+					draw_list->AddText(ImVec2(draw_x - 12 - str_len.x , draw_y - 15), IM_COL32_WHITE, num.c_str());
+				}
+				else
+					draw_list->AddLine(ImVec2(draw_x - 7, draw_y), ImVec2(draw_x, draw_y), IM_COL32(255, 255, 255, 255), 1.0f);
+
+			}
+			else
+			{
+				draw_list->AddLine(ImVec2(draw_x - 4, draw_y), ImVec2(draw_x, draw_y), IM_COL32(255, 255, 255, 255), 1.0f);
+			}
+
+		}
+
+	}
+
+	// overlay
+	{
+
+
+		draw_list->AddRectFilled(ImVec2(begin_x + overlay_frame * frame_width, start_pos.y), ImVec2(begin_x + overlay_frame * frame_width + real_frame_width, end_pos.y), IM_COL32(255, 255, 255, 100));
+		draw_list->AddLine(ImVec2(start_pos.x, io.MousePos.y), ImVec2(end_pos.x, io.MousePos.y), IM_COL32(255, 255, 255, 200));
+	}
+
+
+	// text
+	if (overlay_frame >= 0 && overlay_frame < Count)
+	{
+		struct TextContent
+		{
+			std::string text;
+			float size;
+			int color;
+		};
+
+
+		std::vector<TextContent> contents;
+		float max_width = 0;
+		for (auto& data : datas)
+		{
+			if (data.visible == false || data.type == TimelineData::None)
+				continue;
+			auto content = std::format("{:32s}: {:.2f}", data.name, data.datas[overlay_frame]);
+			contents.push_back({ content,data.datas[overlay_frame], data.color });
+			auto size = ImGui::CalcTextSize(content.c_str());
+			max_width = std::max(max_width, size.x);
+		}
+
+		std::stable_sort(contents.begin(), contents.end(), [](auto& a, auto& b) {return a.size > b.size; });
+
+
+		const float height = 20;
+
+
+		auto tx = io.MousePos.x + 20;
+		auto ty = io.MousePos.y + 20;
+
+		int extra_lines = 2;
+		draw_list->AddRectFilled({ tx, ty }, { tx + max_width, ty + height * (contents.size() + extra_lines) }, IM_COL32_BLACK, 0.5f);
+
+		draw_list->AddText({ tx, ty }, IM_COL32_WHITE, std::to_string(overlay_frame).c_str());
+		draw_list->AddText({ tx, ty + height }, IM_COL32_WHITE, std::format("{:.2f}" ,(end_pos.y - io.MousePos.y) / frame_scaling).c_str());
+
+		for (int i = 0; i < contents.size(); ++i)
+		{
+			auto& c = contents[i];
+			draw_list->AddText({ tx, ty + height * (i + extra_lines)}, c.color, c.text.c_str());
+		}
+	}
 
 
 	ImGui::EndChild();
 }
 
-void TimelineComp::setDatas(int index, TimelineData datas) 
+void TimelineComp::setDatas(int index, TimelineData data) 
 {
+	Count = std::max<int>(Count, data.datas.size());
 
+	
+	for (auto& d : data.datas)
+	{
+		MaxHight = std::max<float>(MaxHight, d);
+	}
+
+	data.datas.resize(Count);
+	//datas.push_back(std::move(data));
+	if (datas.size() <= index)
+	{
+		datas.resize(index + 1);
+	}
+
+	datas[index] = std::move(data);
 }

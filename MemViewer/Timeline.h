@@ -3,6 +3,7 @@
 
 #include "View.h"
 #include "imgui/imgui.h"
+#include "Component.h"
 
 class TimelineView : public View
 {
@@ -16,6 +17,9 @@ public:
 	void SetCustomData(std::vector<float> datas);
 
 private:
+
+	TimelineComp component;
+
 	ImVec2 scrolling = {0.0f, 0.0f};
 	std::vector<float> frames;
 	std::vector<float> custom_datas;

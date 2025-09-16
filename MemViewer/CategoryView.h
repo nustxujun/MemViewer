@@ -3,6 +3,7 @@
 #include "View.h"
 #include <string>
 #include <vector>
+#include <array>
 
 #include "TraceParser.h"
 
@@ -12,6 +13,7 @@ public:
 	//using View::View;
 	CategoryView(std::string n, class TimelineView* tl = nullptr) :View(std::move(n)),timeline_view(tl)
 	{
+		temp.fill(0);
 	}
 private:
 	virtual void InitializeImpl() override;
@@ -59,7 +61,7 @@ private:
 	int show_level = 0;
 	int scaling = 1;
 	int selected_config_file = 0;
-	char temp[1024] ;
+	std::array<char, 1024> temp ;
 
 
 	//int selected_config_file = 0;

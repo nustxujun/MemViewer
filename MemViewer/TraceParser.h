@@ -4,10 +4,11 @@
 #include <vector>
 #include <memory>
 #include <unordered_map>
+#include <map>
 #include "Utils.h"
 
 
-#define Check(x) {if (!(x)) {*((int*)0) = 0;}}
+//#define Check(x) {if (!(x)) {*((int*)0) = 0;}}
 
 struct Calltree;
 struct Node;
@@ -142,7 +143,7 @@ struct AllocInfo
 	uint32_t start;
 	uint32_t end;
 
-	uint32_t rhi_ref = 0;
+	uint32_t user_tag = 0;
 };
 
 struct TotalInfo
@@ -150,6 +151,8 @@ struct TotalInfo
 	uint64_t used;
 	uint64_t available;
 	int64_t overhead = 0;
+
+	std::map<std::string, int64_t> custom_datas;
 };
 
 struct ObjClassInfo
@@ -260,7 +263,7 @@ struct CustomData
 		auto end = buffer + len;
 		int ver = read(buffer);
 		serialize_impl(ver, buffer, len);
-		Check(buffer == end);
+		Assert(buffer == end,"out of range");
 	}
 
 	virtual void serialize_impl(uint32_t version, const char* buffer, uint32_t len) {};

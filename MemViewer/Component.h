@@ -3,6 +3,7 @@
 #include <vector>
 #include <functional>
 #include <string>
+#include "imgui/imgui.h"
 
 struct FilterComp
 {
@@ -192,19 +193,40 @@ struct ModalWindow
 
 struct TimelineComp
 {
+	ImVec2 scrolling = { 0.0f, 0.0f };
+	int freq = 1;
+	int dragging_start = 0;
+	int dragging_end = 0;
+	bool is_scrolling = false;
+	bool is_dragging = false;
+
 	int Count = 0;
+	float MaxHight = 1;
 
 
 	struct TimelineData
 	{
+		enum
+		{
+			None = 0,
+			Line = 1,
+			Bar = 2,
+		};
+
 		std::vector<float> datas;
+		std::string name;
 		int type = 0;
 		int order = 0;
 		int color = 0;
+		bool visible = true;
+		bool stacking = false;
 	};
 
 	std::vector<TimelineData> datas;
 
-	void Show();
+
+	using OnEvnet = std::function<void(int ,int, bool )>;
+
+	void Show(float width = 0, float height = 0, OnEvnet&& evn = {});
 	void setDatas(int index, TimelineData datas);
 };

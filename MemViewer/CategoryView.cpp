@@ -543,7 +543,7 @@ void CategoryView::ShowImpl()
 	const char* config_files[]={"category_config.ini","llm_config.ini"};
 	auto selected = selected_config_file;
 	ImGui::SetNextItemWidth(250);
-	if (ImGui::Combo("", &selected, config_files, 2))
+	if (ImGui::Combo("##config_type", &selected, config_files, 2))
 	{
 		if (selected != selected_config_file)
 		{
@@ -670,9 +670,9 @@ example:
 			ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
 
 			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5, 1, 0.5, 1));
-			if (ImGui::InputTextWithHint("##filter", "search in callstack", temp, 1024, ImGuiInputTextFlags_EnterReturnsTrue))
+			if (ImGui::InputTextWithHint("##filter", "search in callstack", temp.data(), 1024, ImGuiInputTextFlags_EnterReturnsTrue))
 			{
-				symbol_filters = split_string(temp, "|");
+				symbol_filters = split_string(temp.data(), "|");
 				selected_symbol = 0;
 			}
 			ImGui::PopStyleColor();

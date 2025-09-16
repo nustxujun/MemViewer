@@ -114,7 +114,6 @@ void ShowMainWindow()
     std::string file_path;
     ModalWindow::ProcessModalWindow();
 
-
     static TraceView View;
     View.Show();
 
