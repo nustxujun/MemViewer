@@ -30,8 +30,8 @@ public:
     static int GetTrackerType();
 	static uint32 GetCurrentFrame();
     static void Initialize(const TCHAR* CmdLine, const TCHAR* Dir);
-    static void TrackAllocation(const void* Ptr, uint32 Size);
-    static void TrackFree(const void* Ptr);
+    static void TrackAllocation(const void* Ptr, uint32 Size, uint32 UserTag);
+    static void TrackFree(const void* Ptr, uint32 UserTag);
 	
 	static void BeginFrame();
 	
