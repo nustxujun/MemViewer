@@ -28,7 +28,7 @@ MallocEvent OnMallocEvent = nullptr;
 FreeEvent OnFreeEvent = nullptr;
 
 
-static void alloc_hooker(uint32_t type_flags, uintptr_t zone_ptr, uintptr_t arg2, uintptr_t arg3, uintptr_t return_val, uint32_t num_hot_to_skip)
+FORCEINLINE void alloc_hooker(uint32_t type_flags, uintptr_t zone_ptr, uintptr_t arg2, uintptr_t arg3, uintptr_t return_val, uint32_t num_hot_to_skip)
 {
 	uintptr_t size = 0;
 	uintptr_t ptr_arg = 0;
@@ -41,7 +41,7 @@ static void alloc_hooker(uint32_t type_flags, uintptr_t zone_ptr, uintptr_t arg2
 //		return;
 //	}
 
-	if (FIOSIntenralAllocator::InternalZone == zone_ptr)
+	if ((uintptr_t)FIOSIntenralAllocator::InternalZone == zone_ptr)
 		return;
 
 	if ( alias != 0 && alias != VM_MEMORY_IOACCELERATOR && alias != VM_MEMORY_IOSURFACE)
@@ -90,14 +90,14 @@ static void alloc_hooker(uint32_t type_flags, uintptr_t zone_ptr, uintptr_t arg2
 }
 
 
-static void malloc_hooker(uint32_t type_flags, uintptr_t zone_ptr, uintptr_t arg2, uintptr_t arg3, uintptr_t return_val, uint32_t num_hot_to_skip)
+FORCEINLINE void malloc_hooker(uint32_t type_flags, uintptr_t zone_ptr, uintptr_t arg2, uintptr_t arg3, uintptr_t return_val, uint32_t num_hot_to_skip)
 {
 	if (orig_malloc_logger)
 		orig_malloc_logger(type_flags, zone_ptr, arg2, arg3, return_val, num_hot_to_skip);
 	alloc_hooker(type_flags, zone_ptr, arg2, arg3, return_val, num_hot_to_skip);
 }
 
-static void syscall_hooker(uint32_t type_flags, uintptr_t zone_ptr, uintptr_t arg2, uintptr_t arg3, uintptr_t return_val, uint32_t num_hot_to_skip)
+FORCEINLINE void syscall_hooker(uint32_t type_flags, uintptr_t zone_ptr, uintptr_t arg2, uintptr_t arg3, uintptr_t return_val, uint32_t num_hot_to_skip)
 {
 	if (orig_syscall_logger)
 		orig_syscall_logger(type_flags, zone_ptr, arg2, arg3, return_val, num_hot_to_skip);
@@ -116,5 +116,4 @@ void FIOSHook::StartHooking(MallocEvent OnMalloc, FreeEvent OnFree)
 	malloc_logger = malloc_hooker;
 	__syscall_logger = syscall_hooker;
 }
-
 #endif

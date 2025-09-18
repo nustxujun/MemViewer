@@ -4,7 +4,9 @@
 #include "CoreMinimal.h"
 #include "Serialization/MemoryWriter.h"
 
+#ifndef ENABLE_ALLOCATION_TRACKING
 #define ENABLE_ALLOCATION_TRACKING !UE_BUILD_SHIPPING
+#endif 
 
 #if ENABLE_ALLOCATION_TRACKING
 #define ALLOC_TRACK(x) x

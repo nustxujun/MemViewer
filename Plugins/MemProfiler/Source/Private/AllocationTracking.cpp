@@ -1,6 +1,5 @@
 //#if ENABLE_LOW_LEVEL_MEM_TRACKER
 
-
 #include "AllocationTracking.h"
 #include "HAL/PlatformFilemanager.h"
 #include "GenericPlatform/GenericPlatformFile.h"
@@ -10,6 +9,7 @@
 #include "Containers/SortedMap.h"
 
 #include "PlatformCommons.h"
+#include "DynamicTLS.h"
 
 #include <map>
 #include <atomic>
@@ -62,7 +62,7 @@ struct AllocTrackState
 	std::atomic_int64_t Overhead = 0;
 
 	FCriticalSection InternalMallocMutex;
-	bool bInternalMalloc = false;
+	FDynamicTLS<bool> bInternalMalloc;
 	bool bCapturingStack = false;
 	bool bBackTrace = true;
 	bool bMallocTrace = true;
@@ -78,21 +78,18 @@ static AllocTrackState*& GetState()
 
 static bool IsInternalMalloc()
 {
-	FScopeLock Lock(&GetState()->InternalMallocMutex);
-	return GetState()->bInternalMalloc;
+	return GetState()->bInternalMalloc.GetValue();
 }
 
 struct FInternalMallocScope
 {
 	FInternalMallocScope()
 	{
-		FScopeLock Lock(&GetState()->InternalMallocMutex);
-		GetState()->bInternalMalloc = true;
+		GetState()->bInternalMalloc.SetValue(true);
 	}
 	~FInternalMallocScope()
 	{
-		FScopeLock Lock(&GetState()->InternalMallocMutex);
-		GetState()->bInternalMalloc = false;
+		GetState()->bInternalMalloc.SetValue(false);
 	}
 };
 
@@ -130,7 +127,7 @@ public:
 		if (Begin + n >= End)
 		{
 			//FScopeLock InternalLock(&GetState()->InternalMallocMutex);
-			//GetState()->bInternalMalloc = true;
+			GetState()->bInternalMalloc.SetValue(true);
 #if PLATFORM_IOS || PLATFORM_ANDROID
 
 			ensure(ftruncate(Handle, (NumPages + 1) * PageSize) == 0);
@@ -183,7 +180,7 @@ public:
 			T* Page = 0;
 			return nullptr;
 #endif
-			//GetState()->bInternalMalloc = false;
+			GetState()->bInternalMalloc.SetValue(false);
 
 			check(Page);
 			GetState()->Overhead += PageSize;
@@ -1048,6 +1045,8 @@ void FAllocationTracking::TrackAllocation(const void* Ptr, uint32 Size, uint32 V
 		return;
 	}
 
+    if (IsInternalMalloc())
+        return;
 
 	int StackId = GetCurrentStackId();
 	
@@ -1071,7 +1070,8 @@ void FAllocationTracking::TrackAllocation(const void* Ptr, uint32 Size, uint32 V
 
 void FAllocationTracking::TrackFree(const void* Ptr, uint32 VMUserTag)
 {
-
+    if (IsInternalMalloc())
+        return;
 	auto Info = GetEnv()->Deallocations->Malloc();
 	Info->Ptr = (uint64)Ptr;
 	Info->End = GetCurrentTime();

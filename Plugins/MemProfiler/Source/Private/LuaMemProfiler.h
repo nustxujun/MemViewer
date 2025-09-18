@@ -6,7 +6,7 @@
 //#include "LuaSubsystem.h"
 
 
-class MEMPROFILER_API FLuaMemProfiler
+class FLuaMemProfiler
 {
 public:
 	static void Initialize(const TCHAR* CmdLine, const TCHAR* Dir);
