@@ -7,5 +7,6 @@ class FUObjectProfiler
 {
 public:
     static void Initialize();
-	static void Start();
+	static void Start(const TCHAR* Dir);
+	static void UpdateFrame();
 };

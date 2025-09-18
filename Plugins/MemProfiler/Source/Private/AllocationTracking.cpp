@@ -1,4 +1,6 @@
 //#if ENABLE_LOW_LEVEL_MEM_TRACKER
+
+
 #include "AllocationTracking.h"
 #include "HAL/PlatformFilemanager.h"
 #include "GenericPlatform/GenericPlatformFile.h"
@@ -7,6 +9,7 @@
 #include "Containers/Queue.h"
 #include "Containers/SortedMap.h"
 
+#include "PlatformCommons.h"
 
 #include <map>
 #include <atomic>
@@ -67,17 +70,31 @@ struct AllocTrackState
 	bool bTrackVM = false;
 };
 
-static AllocTrackState& GetState()
+static AllocTrackState*& GetState()
 {
-	static AllocTrackState State;
+	static AllocTrackState* State = 0;
 	return State;
 }
 
 static bool IsInternalMalloc()
 {
-	FScopeLock Lock(&GetState().InternalMallocMutex);
-	return GetState().bInternalMalloc;
+	FScopeLock Lock(&GetState()->InternalMallocMutex);
+	return GetState()->bInternalMalloc;
 }
+
+struct FInternalMallocScope
+{
+	FInternalMallocScope()
+	{
+		FScopeLock Lock(&GetState()->InternalMallocMutex);
+		GetState()->bInternalMalloc = true;
+	}
+	~FInternalMallocScope()
+	{
+		FScopeLock Lock(&GetState()->InternalMallocMutex);
+		GetState()->bInternalMalloc = false;
+	}
+};
 
 constexpr int CacheSize = 32;
 template<class T, bool bAutoDrop = true>
@@ -112,8 +129,8 @@ public:
 
 		if (Begin + n >= End)
 		{
-			FScopeLock InternalLock(&GetState().InternalMallocMutex);
-			GetState().bInternalMalloc = true;
+			//FScopeLock InternalLock(&GetState()->InternalMallocMutex);
+			//GetState()->bInternalMalloc = true;
 #if PLATFORM_IOS || PLATFORM_ANDROID
 
 			ensure(ftruncate(Handle, (NumPages + 1) * PageSize) == 0);
@@ -121,7 +138,7 @@ public:
 			{
 				//				madvise(Buffer, PageSize, MADV_DONTNEED);
 				munmap(Buffer, PageSize);
-				GetState().Overhead -= PageSize;
+				GetState()->Overhead -= PageSize;
 			}
 			T* Page = (T*)mmap(0, PageSize, PROT_READ | PROT_WRITE, MAP_SHARED, Handle, NumPages * PageSize);
 #elif PLATFORM_WINDOWS
@@ -134,7 +151,7 @@ public:
 				}
 
 				UnmapViewOfFile(Buffer);
-				//GetState().Overhead -= PageSize;
+				//GetState()->Overhead -= PageSize;
 				CloseHandle(Handle);
 
 
@@ -157,7 +174,8 @@ public:
 			checkf(Page, TEXT("errno: %d"), ::GetLastError());
 			if (!bAutoDrop)
 			{
-				ShadowBuffer = (T*)malloc(PageSize);
+				//ShadowBuffer = (T*)malloc(PageSize);
+				ShadowBuffer = (T*)FGenericPlatformInternalAllocator::Malloc(PageSize);
 				memset(ShadowBuffer, 0, PageSize);
 
 			}
@@ -165,10 +183,10 @@ public:
 			T* Page = 0;
 			return nullptr;
 #endif
-			GetState().bInternalMalloc = false;
+			//GetState()->bInternalMalloc = false;
 
 			check(Page);
-			GetState().Overhead += PageSize;
+			GetState()->Overhead += PageSize;
 
 			NumPages++;
 
@@ -203,114 +221,6 @@ private:
 #endif
 	FCriticalSection SharedMutex;
 };
-
-
-struct Recorder
-{
-	FString Name;
-	FArchive* File;
-	TFunction<void(FArchive&)> Callback;
-};
-
-
-
-
-typedef void (malloc_logger_t)(uint32_t type, uintptr_t arg1, uintptr_t arg2, uintptr_t arg3, uintptr_t result, uint32_t num_hot_frames_to_skip);
-extern malloc_logger_t* malloc_logger;
-extern malloc_logger_t* __syscall_logger;
-static malloc_logger_t* orig_malloc_logger;
-static malloc_logger_t* orig_syscall_logger;
-
-#define memory_logging_type_free 0
-#define memory_logging_type_generic 1 /* anything that is not allocation/deallocation */
-#define memory_logging_type_alloc 2 /* malloc, realloc, etc... */
-#define memory_logging_type_dealloc 4 /* free, realloc, etc... */
-#define memory_logging_type_vm_allocate 16 /* vm_allocate or mmap */
-#define memory_logging_type_vm_deallocate 32 /* vm_deallocate or munmap */
-#define memory_logging_type_mapped_file_or_shared_mem 128
-
-
-static void alloc_hooker(uint32_t type_flags, uintptr_t zone_ptr, uintptr_t arg2, uintptr_t arg3, uintptr_t return_val, uint32_t num_hot_to_skip)
-{
-
-#if PLATFORM_IOS
-
-
-	uintptr_t size = 0;
-	uintptr_t ptr_arg = 0;
-
-
-	uint32_t alias = 0;
-	VM_GET_FLAGS_ALIAS(type_flags, alias);
-	// skip all VM allocation events from malloc_zone
-//	if (alias >= VM_MEMORY_MALLOC && alias <= VM_MEMORY_MALLOC_NANO) {
-//		return;
-//	}
-	
-	if (!GetState().bTrackVM && alias != 0 && alias != VM_MEMORY_IOACCELERATOR && alias != VM_MEMORY_IOSURFACE)
-		return;
-
-	// skip allocation events from mapped_file
-	if (type_flags & memory_logging_type_mapped_file_or_shared_mem) {
-		return;
-	}
-
-
-
-
-
-	// check incoming data
-	if ((type_flags & memory_logging_type_alloc) && (type_flags & memory_logging_type_dealloc)) {
-		size = arg3;
-		ptr_arg = arg2; // the original pointer
-		if (ptr_arg == return_val) {
-			return; // realloc had no effect, skipping
-		}
-		if (ptr_arg == 0) { // realloc(NULL, size) same as malloc(size)
-			type_flags ^= memory_logging_type_dealloc;
-		}
-		else {
-			// realloc(arg1, arg2) -> result is same as free(arg1); malloc(arg2) -> result
-			alloc_hooker(memory_logging_type_dealloc | alias, zone_ptr, ptr_arg, (uintptr_t)0, (uintptr_t)0, num_hot_to_skip + 1);
-			alloc_hooker(memory_logging_type_alloc | alias, zone_ptr, size, (uintptr_t)0, return_val, num_hot_to_skip + 1);
-			return;
-		}
-	}
-
-	if ((type_flags & memory_logging_type_dealloc) || (type_flags & memory_logging_type_vm_deallocate)) {
-
-		size = arg3;
-		ptr_arg = arg2;
-		if (ptr_arg == 0) {
-			return; // free(nil)
-		}
-		FAllocationTracking::TrackFree((const void*)ptr_arg, alias);
-	}
-	if ((type_flags & memory_logging_type_alloc) || (type_flags & memory_logging_type_vm_allocate)) {
-		if (return_val == 0 || return_val == (uintptr_t)MAP_FAILED) {
-			return;
-		}
-		size = arg2;
-
-		FAllocationTracking::TrackAllocation((const void*)return_val, size,alias);
-	}
-#endif
-}
-
-
-static void malloc_hooker(uint32_t type_flags, uintptr_t zone_ptr, uintptr_t arg2, uintptr_t arg3, uintptr_t return_val, uint32_t num_hot_to_skip)
-{
-	if (orig_malloc_logger)
-		orig_malloc_logger(type_flags, zone_ptr, arg2, arg3, return_val, num_hot_to_skip);
-	alloc_hooker(type_flags, zone_ptr, arg2, arg3, return_val, num_hot_to_skip);
-}
-
-static void syscall_hooker(uint32_t type_flags, uintptr_t zone_ptr, uintptr_t arg2, uintptr_t arg3, uintptr_t return_val, uint32_t num_hot_to_skip)
-{
-	if (orig_syscall_logger)
-		orig_syscall_logger(type_flags, zone_ptr, arg2, arg3, return_val, num_hot_to_skip);
-	alloc_hooker(type_flags, zone_ptr, arg2, arg3, return_val, num_hot_to_skip);
-}
 
 
 struct TraceKey
@@ -388,16 +298,9 @@ public:
 		const FPlatformMemoryConstants& MemoryConstants = FPlatformMemory::GetConstants();
 		auto alloc_size = MemoryConstants.PageSize * sizeof(node);
 
-		FScopeLock Lock(&GetState().InternalMallocMutex);
-		GetState().bInternalMalloc = true;
-#if PLATFORM_IOS || PLATFORM_ANDROID
-		Block = mmap(0, alloc_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
-#elif PLATFORM_WINDOWS
-		Block = ::malloc(alloc_size);
-#endif
-		GetState().bInternalMalloc = false;
+		Block = FGenericPlatformInternalAllocator::Malloc(alloc_size);
 
-		GetState().Overhead += alloc_size;
+		GetState()->Overhead += alloc_size;
 		check(Block);
 		auto count = MemoryConstants.PageSize;
 		auto begin = (node*)Block;
@@ -657,7 +560,6 @@ public:
 	}
 };
 
-//static splay_map<const void*, AllocInfo*>* AddrMap;
 
 
 struct AllocTrackEnvironment
@@ -673,7 +575,7 @@ struct AllocTrackEnvironment
 	TSharedPtr<FArchive> SnapshotFile;
 	TSharedPtr<FArchive> CustomFile;
 
-	TArray<Recorder> Recorders;
+	//TArray<Recorder> Recorders;
 
 	FCriticalSection TraceMutex;
 	FCriticalSection RHIMutex;
@@ -681,24 +583,22 @@ struct AllocTrackEnvironment
 	std::atomic_uint32_t FrameCount = 1;
 };
 
-static AllocTrackEnvironment& GetEnv()
+static AllocTrackEnvironment*& GetEnv()
 {
-	static AllocTrackEnvironment Env;
+	static AllocTrackEnvironment* Env = 0;
 	return Env;
 }
 
 
-
 static bool IsInitialized()
 {
-	return GetState().bInitialized;
+	return GetState()->bInitialized;
 }
 
 static std::atomic_uint32_t& GetCurrentTime()
 {
-	return GetEnv().FrameCount;
+	return GetEnv()->FrameCount;
 }
-
 
 
 bool FAllocationTracking::IsEnabled()
@@ -708,12 +608,12 @@ bool FAllocationTracking::IsEnabled()
 
 bool FAllocationTracking::IsCapturingStack()
 {
-	return GetState().bCapturingStack;
+	return GetState()->bCapturingStack;
 }
 
 bool FAllocationTracking::IsStandalone()
 {
-	return GetState().bStandAlone;
+	return GetState()->bStandAlone;
 }
 
 uint32 FAllocationTracking::GetCurrentFrame()
@@ -730,7 +630,7 @@ uint32 FAllocationTracking::GetCurrentFrame()
 //  }
 static FString& GetFolderPath()
 {
-	return GetState().FolderPath;
+	return GetState()->FolderPath;
 }
 
 FString GetFilePath(const TCHAR* Filename)
@@ -941,7 +841,7 @@ FORCENOINLINE static void GetProgramSize()
 void FAllocationTracking::Initialize(const TCHAR* CmdLine, const TCHAR* InDir)
 {
 
-	if (IsInitialized())
+	if (GetState() != 0)
 		return;
 
 	bool bEnabled = FParse::Param(CmdLine, TEXT("memoryprofile")) == true;
@@ -951,30 +851,24 @@ void FAllocationTracking::Initialize(const TCHAR* CmdLine, const TCHAR* InDir)
 	if (!bEnabled)
 		return;
 
-#if PLATFORM_IOS
-	orig_malloc_logger = malloc_logger;
-	orig_syscall_logger = __syscall_logger;
-	malloc_logger = nullptr;
-	__syscall_logger = nullptr;
-#endif
+	FGenericPlatformInternalAllocator::Initialize();
+
+	GetState() = new AllocTrackState();
+	GetEnv() = new AllocTrackEnvironment();
 
 
-	FParse::Value(CmdLine, TEXT("ignoresmallalloc="), GetState().SizeLimit);
-	FParse::Value(CmdLine, TEXT("tracktype="), GetState().TrackerType);
+	FParse::Value(CmdLine, TEXT("ignoresmallalloc="), GetState()->SizeLimit);
+	FParse::Value(CmdLine, TEXT("tracktype="), GetState()->TrackerType);
 
-	GetState().bMallocTrace = FParse::Param(CmdLine, TEXT("nomalloc")) == false;
-	GetState().bBackTrace = FParse::Param(CmdLine, TEXT("nostack")) == false;
-	GetState().bCapturingStack = FParse::Param(CmdLine, TEXT("memalloclogger")) == true;
-	GetState().bStandAlone = FParse::Param(CmdLine, TEXT("nollm")) == true;
-	GetState().bTrackVM = FParse::Param(CmdLine, TEXT("trackvm")) == true;
+	GetState()->bMallocTrace = FParse::Param(CmdLine, TEXT("nomalloc")) == false;
+	GetState()->bBackTrace = FParse::Param(CmdLine, TEXT("nostack")) == false;
+	GetState()->bCapturingStack = FParse::Param(CmdLine, TEXT("memalloclogger")) == true;
+	GetState()->bStandAlone = FParse::Param(CmdLine, TEXT("nollm")) == true;
+	GetState()->bTrackVM = FParse::Param(CmdLine, TEXT("trackvm")) == true;
 	auto& FileMgr = IFileManager::Get();
-	//    const FString Dir = FPaths::Combine(FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()), TEXT("Profiling"));
 	const FString Dir = InDir;
 
-	//	auto DateTime = FDateTime::Now().ToString(TEXT("%Y_%m_%d-%H_%M_%S"));
-	//    const auto FolderPath = FPaths::Combine(Dir, DateTime);
 	auto& FolderPath = GetFolderPath();
-	//	FolderPath= FPaths::Combine(Dir, DateTime);
 	FolderPath = Dir;
 
 	FileMgr.MakeDirectory(*FolderPath, true);
@@ -990,9 +884,9 @@ void FAllocationTracking::Initialize(const TCHAR* CmdLine, const TCHAR* InDir)
 
 	UE_LOG(LogCore, Log, TEXT("%s, %s"), *StackPath, *AllocPath);
 
-	GetEnv().MappedStacks = new MappedAlloc<uint64, false>(TCHAR_TO_UTF8(*StackPath));
-	GetEnv().Allocations = new MappedAlloc<AllocInfo>(TCHAR_TO_UTF8(*AllocPath));
-	GetEnv().Deallocations = new MappedAlloc<DeallocInfo>(TCHAR_TO_UTF8(*DeallocPath));
+	GetEnv()->MappedStacks = new MappedAlloc<uint64, false>(TCHAR_TO_UTF8(*StackPath));
+	GetEnv()->Allocations = new MappedAlloc<AllocInfo>(TCHAR_TO_UTF8(*AllocPath));
+	GetEnv()->Deallocations = new MappedAlloc<DeallocInfo>(TCHAR_TO_UTF8(*DeallocPath));
 	{
 		TSharedPtr<FArchive> ModuleFile = MakeShareable<FArchive>(FileMgr.CreateFileWriter(*FPaths::Combine(FolderPath, TEXT("modules")), FILEWRITE_AllowRead));
 
@@ -1038,52 +932,27 @@ void FAllocationTracking::Initialize(const TCHAR* CmdLine, const TCHAR* InDir)
 #endif
 	}
 
-	// {
-	// 	TSharedPtr<FArchive> InfoFile = MakeShareable<FArchive>(FileMgr.CreateFileWriter(*FPaths::Combine(FolderPath, TEXT("infos")), FILEWRITE_AllowRead));
 
-	// 	auto WriteInfo = [&](FString Key, FString Value){
-	// 		FString Str = FString::Printf(TEXT("%s=%s"), *Key, *Value);
-	// 		int Len = Str.Len();
-	// 		(*InfoFile) << Len;
-	// 		InfoFile->Serialize(TCHAR_TO_ANSI(*Str), Len);
-	// 	};
-	// 	WriteInfo(TEXT("cmdline"), CmdLine);
-	// }
 
-	GetEnv().SnapshotFile = MakeShareable<FArchive>(FileMgr.CreateFileWriter(*FPaths::Combine(FolderPath, TEXT("snapshots")), FILEWRITE_AllowRead));
-	GetEnv().FrameFile = MakeShareable<FArchive>(FileMgr.CreateFileWriter(*FPaths::Combine(FolderPath, TEXT("frames")), FILEWRITE_AllowRead));
-	GetEnv().RHIFile = MakeShareable<FArchive>(FileMgr.CreateFileWriter(*FPaths::Combine(FolderPath, TEXT("rhis")), FILEWRITE_AllowRead));
-	GetEnv().CustomFile = MakeShareable<FArchive>(FileMgr.CreateFileWriter(*FPaths::Combine(FolderPath, TEXT("customs")), FILEWRITE_AllowRead));
+	GetEnv()->SnapshotFile = MakeShareable<FArchive>(FileMgr.CreateFileWriter(*FPaths::Combine(FolderPath, TEXT("snapshots")), FILEWRITE_AllowRead));
+	GetEnv()->FrameFile = MakeShareable<FArchive>(FileMgr.CreateFileWriter(*FPaths::Combine(FolderPath, TEXT("frames")), FILEWRITE_AllowRead));
+	GetEnv()->RHIFile = MakeShareable<FArchive>(FileMgr.CreateFileWriter(*FPaths::Combine(FolderPath, TEXT("rhis")), FILEWRITE_AllowRead));
+	GetEnv()->CustomFile = MakeShareable<FArchive>(FileMgr.CreateFileWriter(*FPaths::Combine(FolderPath, TEXT("customs")), FILEWRITE_AllowRead));
 
-	//	ObjectFile = MakeShareable<FArchive>(FileMgr.CreateFileWriter(*FPaths::Combine(FolderPath, TEXT("objects")), FILEWRITE_AllowRead));
 
-	for (auto& R : GetEnv().Recorders)
+	if (IsCapturingStack() && GetState()->bMallocTrace)
 	{
-		R.File = (FileMgr.CreateFileWriter(*FPaths::Combine(FolderPath, *R.Name), FILEWRITE_AllowRead));
+		FGenericPlatformHook::StartHooking(FAllocationTracking::TrackAllocation, FAllocationTracking::TrackFree);
 	}
 
-
-#if PLATFORM_IOS
-	if (IsCapturingStack() && GetState().bMallocTrace)
-	{
-		malloc_logger = malloc_hooker;
-		__syscall_logger = syscall_hooker;
-	}
-	else
-	{
-		malloc_logger = orig_malloc_logger;
-		__syscall_logger = orig_syscall_logger;
-	}
-#endif
-
-	GetState().bInitialized = true;
+	GetState()->bInitialized = true;
 	GetProgramSize();
 };
 
 
 int FAllocationTracking::GetTrackerType()
 {
-	return GetState().TrackerType;
+	return GetState()->TrackerType;
 }
 
 #if PLATFORM_WINDOWS
@@ -1121,7 +990,7 @@ static int FastCaptureBackTraceOnWin64(uint64* BackTrace, uint32 MaxDepth)
 
 int FAllocationTracking::GetCurrentStackId()
 {
-	if (!GetState().bBackTrace)
+	if (!GetState()->bBackTrace)
 		return -1;
 	static const int MAX_DEPTH = 1024;
 	uint64 Stack[MAX_DEPTH + 1];
@@ -1142,7 +1011,7 @@ int FAllocationTracking::GetCurrentStackId()
 	
 	TraceKey Key(Stack);
 
-	auto& Env = GetEnv();
+	auto& Env = *GetEnv();
 
 	int StackId = 0;
 
@@ -1174,13 +1043,11 @@ int FAllocationTracking::GetCurrentStackId()
 
 void FAllocationTracking::TrackAllocation(const void* Ptr, uint32 Size, uint32 VMUserTag)
 {
-	if (Size <= GetState().SizeLimit)
+	if (Size <= GetState()->SizeLimit)
 	{
 		return;
 	}
 
-	if (IsInternalMalloc())
-		return;
 
 	int StackId = GetCurrentStackId();
 	
@@ -1193,7 +1060,7 @@ void FAllocationTracking::TrackAllocation(const void* Ptr, uint32 Size, uint32 V
 		Size = RealSize;
 #endif
 
-	auto Info = GetEnv().Allocations->Malloc();
+	auto Info = GetEnv()->Allocations->Malloc();
 	Info->Ptr = (uint64)Ptr;
 	Info->Size = Size;
 	Info->Trace = StackId;
@@ -1204,10 +1071,8 @@ void FAllocationTracking::TrackAllocation(const void* Ptr, uint32 Size, uint32 V
 
 void FAllocationTracking::TrackFree(const void* Ptr, uint32 VMUserTag)
 {
-	if (IsInternalMalloc())
-		return;
 
-	auto Info = GetEnv().Deallocations->Malloc();
+	auto Info = GetEnv()->Deallocations->Malloc();
 	Info->Ptr = (uint64)Ptr;
 	Info->End = GetCurrentTime();
 	Info->Tag = VMUserTag;
@@ -1216,7 +1081,7 @@ void FAllocationTracking::TrackFree(const void* Ptr, uint32 VMUserTag)
 FCriticalSection& GetRHIMutex()
 {
 
-	return GetEnv().RHIMutex;
+	return GetEnv()->RHIMutex;
 }
 
 
@@ -1226,7 +1091,7 @@ void FAllocationTracking::TrackAllocRHITexture(const void* Ptr, const FString& N
 		return;
 
 	FScopeLock Lock(&GetRHIMutex());
-	auto& RHIFile = GetEnv().RHIFile;
+	auto& RHIFile = GetEnv()->RHIFile;
 
 
 	uint32 bCreate = 1;
@@ -1280,7 +1145,7 @@ void FAllocationTracking::TrackFreeRHITexture(const void* Ptr)
 		return;
 	FScopeLock Lock(&GetRHIMutex());
 
-	auto& RHIFile = GetEnv().RHIFile;
+	auto& RHIFile = GetEnv()->RHIFile;
 	//	check (P != Ptr);
 
 
@@ -1300,7 +1165,7 @@ void FAllocationTracking::TrackAllocRHIBuffer(const void* Ptr, const FString& Na
 		return;
 	FScopeLock Lock(&GetRHIMutex());
 
-	auto& RHIFile = GetEnv().RHIFile;
+	auto& RHIFile = GetEnv()->RHIFile;
 
 	uint32 bCreate = 1;
 	(*RHIFile) << bCreate;
@@ -1323,8 +1188,8 @@ void FAllocationTracking::TrackFreeRHIBuffer(const void* Ptr)
 
 void FAllocationTracking::TrackAllocObject(const void* Ptr, const FString& Name, uint32 Size, uint32 Type)
 {
-	auto& Custom = *GetEnv().CustomFile.Get();
-	FScopeLock Lock(&GetEnv().CustomMutex);
+	auto& Custom = *GetEnv()->CustomFile.Get();
+	FScopeLock Lock(&GetEnv()->CustomMutex);
 
 	uint32 bCreate = 1;
 	Custom << bCreate;
@@ -1343,8 +1208,8 @@ void FAllocationTracking::TrackAllocObject(const void* Ptr, const FString& Name,
 
 void FAllocationTracking::TrackAllocObjectWithData(const void* Ptr, const FString& Name, uint32 Size, uint32 Type, const void* Buffer, uint32 BufferSize)
 {
-	auto& Custom = *GetEnv().CustomFile.Get();
-	FScopeLock Lock(&GetEnv().CustomMutex);
+	auto& Custom = *GetEnv()->CustomFile.Get();
+	FScopeLock Lock(&GetEnv()->CustomMutex);
 
 	uint32 bCreate = 1;
 	Custom << bCreate;
@@ -1363,8 +1228,8 @@ void FAllocationTracking::TrackAllocObjectWithData(const void* Ptr, const FStrin
 }
 void FAllocationTracking::TrackFreeObject(const void* Ptr)
 {
-	auto& Custom = *GetEnv().CustomFile.Get();
-	FScopeLock Lock(&GetEnv().CustomMutex);
+	auto& Custom = *GetEnv()->CustomFile.Get();
+	FScopeLock Lock(&GetEnv()->CustomMutex);
 	uint32 bCreate = 0;
 	Custom << bCreate;
 	uint64 Addr = (uint64)Ptr;
@@ -1373,31 +1238,13 @@ void FAllocationTracking::TrackFreeObject(const void* Ptr)
 	Custom << Time;
 }
 
-void FAllocationTracking::AddFrameRecorder(const FString& name, TFunction<void(FArchive& Ar)> Recorder)
-{
-	if (GetFolderPath().IsEmpty())
-	{
-		GetEnv().Recorders.Add({ name, {}, MoveTemp(Recorder) });
-	}
-	else
-	{
-		auto& FileMgr = IFileManager::Get();
-		auto File = (FileMgr.CreateFileWriter(*FPaths::Combine(GetFolderPath(), *name), FILEWRITE_AllowRead));
-		GetEnv().Recorders.Add({ name, File, MoveTemp(Recorder) });
-	}
-}
 
-void FAllocationTracking::BeginFrame()
+void FAllocationTracking::UpdateFrame()
 {
 	if (!IsInitialized())
 		return;
 
-	for (auto& R : GetEnv().Recorders)
-	{
-		R.Callback(*R.File);
-	}
-
-	auto& FrameFile = GetEnv().FrameFile;
+	auto& FrameFile = GetEnv()->FrameFile;
 
 	auto Stats = FPlatformMemory::GetStats();
 #if PLATFORM_IOS
@@ -1411,7 +1258,7 @@ void FAllocationTracking::BeginFrame()
 	(*FrameFile) << FrameId;
 	(*FrameFile) << Used;
 	(*FrameFile) << Available;
-	int64 OH = GetState().Overhead;
+	int64 OH = GetState()->Overhead;
 	(*FrameFile) << OH;
 
 
@@ -1454,7 +1301,7 @@ void FAllocationTracking::BeginFrame()
 	FrameFile->Flush();
 	{
 		FScopeLock Lock(&GetRHIMutex());
-		GetEnv().RHIFile->Flush();
+		GetEnv()->RHIFile->Flush();
 	}
 }
 
@@ -1463,13 +1310,13 @@ static void TakeSnapshot(const FString& Name)
 	if (!IsInitialized())
 		return;
 	uint32 Time = GetCurrentTime();
-	(*GetEnv().SnapshotFile) << Time;
+	(*GetEnv()->SnapshotFile) << Time;
 	std::string NameStr = TCHAR_TO_UTF8(*Name);
 	int Len = NameStr.length();
-	(*GetEnv().SnapshotFile) << Len;
-	GetEnv().SnapshotFile->Serialize((void*)NameStr.c_str(), Len);
+	(*GetEnv()->SnapshotFile) << Len;
+	GetEnv()->SnapshotFile->Serialize((void*)NameStr.c_str(), Len);
 
-	GetEnv().SnapshotFile->Flush();
+	GetEnv()->SnapshotFile->Flush();
 }
 
 static FAutoConsoleCommand AllocationTrackingTakeSnpashot(TEXT("alloc.take"), TEXT(""), FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args) 
@@ -1484,10 +1331,11 @@ static FAutoConsoleCommand AllocationTrackingTakeSnpashot(TEXT("alloc.take"), TE
 static FAutoConsoleCommand AllocationTrackingGenerateSymbols(TEXT("alloc.gensymbols"), TEXT(""), FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
 {
 
-	auto& Env = GetEnv();
+	auto& Env = *GetEnv();
 	FScopeLock Lock(&Env.TraceMutex);
-	FScopeLock Lock2(&GetState().InternalMallocMutex);
-	GetState().bInternalMalloc = true;
+	GetState()->bInitialized = false;
+
+	FPlatformProcess::Sleep(1.f);
 
 	TSortedMap<int64, std::string> AddrMap;
 
@@ -1529,11 +1377,6 @@ static FAutoConsoleCommand AllocationTrackingGenerateSymbols(TEXT("alloc.gensymb
 
 	File->Flush();
 	delete File;
-
-
-
-
-	GetState().bInternalMalloc = false;
 
 }));
 

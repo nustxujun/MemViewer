@@ -33,10 +33,8 @@ public:
     static void TrackAllocation(const void* Ptr, uint32 Size, uint32 UserTag);
     static void TrackFree(const void* Ptr, uint32 UserTag);
 	
-	static void BeginFrame();
+	static void UpdateFrame();
 	
-	
-	static void AddFrameRecorder(const FString& name, TFunction<void(FArchive& Ar)> Recorder);
 	
 	enum
 	{

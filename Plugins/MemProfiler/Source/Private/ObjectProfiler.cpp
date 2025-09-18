@@ -78,10 +78,10 @@ struct FUObjectListener: public FUObjectArray::FUObjectCreateListener, public FU
 		GUObjectArray.AddUObjectCreateListener(this);
 		GUObjectArray.AddUObjectDeleteListener(this);
 		
-		FAllocationTracking::AddFrameRecorder(TEXT("objects"), [this](FArchive& Ar){
-			Process(Ar);
+		//FAllocationTracking::AddFrameRecorder(TEXT("objects"), [this](FArchive& Ar){
+		//	Process(Ar);
 
-		});
+		//});
 				
 		
 	}
@@ -190,17 +190,35 @@ struct FUObjectListener: public FUObjectArray::FUObjectCreateListener, public FU
 };
 
 
+static FArchive*& GetObjectFile()
+{
+	static FArchive* ObjectFile;
 
+	return ObjectFile;
+}
 
 void FUObjectProfiler::Initialize()
 {
 }
 
-void FUObjectProfiler::Start()
+void FUObjectProfiler::Start(const TCHAR* Dir)
 {
 	bool bEnabled = FParse::Param(FCommandLine::Get(), TEXT("trackuobj")) == true;
 	if (!bEnabled)
 			return;
+
+	auto& FileMgr = IFileManager::Get();
+	GetObjectFile() = (FileMgr.CreateFileWriter(*FPaths::Combine(Dir, TEXT("objects")), FILEWRITE_AllowRead));
+
+
+}
+
+void FUObjectProfiler::UpdateFrame()
+{
+	if (GetObjectFile() == nullptr)
+		return;
+
 	static FUObjectListener Listener;
 
+	Listener.Process(*GetObjectFile());
 }

@@ -98,11 +98,12 @@ public:
 
 		
 		FMemoryProfiler::Start(*GetDir());
-		FUObjectProfiler::Start();
+		FUObjectProfiler::Start(*GetDir());
 		FLuaMemProfiler::Start(*GetDir());
 		
 		FCoreDelegates::OnBeginFrame.AddLambda([](){
-		   FAllocationTracking::BeginFrame();
+		   FAllocationTracking::UpdateFrame();
+		   FUObjectProfiler::UpdateFrame();
 		});
 
     }
