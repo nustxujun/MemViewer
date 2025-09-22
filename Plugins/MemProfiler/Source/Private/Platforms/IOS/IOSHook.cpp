@@ -116,4 +116,12 @@ void FIOSHook::StartHooking(MallocEvent OnMalloc, FreeEvent OnFree)
 	malloc_logger = malloc_hooker;
 	__syscall_logger = syscall_hooker;
 }
+
+void FIOSHook::StopHooking()
+{
+	malloc_logger = orig_malloc_logger;
+	__syscall_logger = orig_syscall_logger;
+}
+
+
 #endif

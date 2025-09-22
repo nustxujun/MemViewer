@@ -9,14 +9,14 @@ public class MemProfiler : ModuleRules
 	{
 		PublicDependencyModuleNames.AddRange( new string[] { "Core",  "CoreUObject", "RenderCore","Engine"} );
 
-		if (Target.Platform == UnrealTargetPlatform.Win64)
-		{
-			PrivateIncludePaths.Add( Path.Combine( ModuleDirectory, "Private/Platforms/Windows/" ) );
-			PrivateIncludePaths.Add( Path.Combine( ModuleDirectory, "Private/Platforms/Windows/MinHook/" ) );
-        }
-		else if (Target.Platform == UnrealBuildTool.IOS)
-		{
-			PrivateIncludePaths.Add( Path.Combine( ModuleDirectory, "Private/Platforms/IOS/" ) );
-		}
+		//if (Target.Platform == UnrealTargetPlatform.Win64)
+		//{
+		//	PrivateIncludePaths.Add( Path.Combine( ModuleDirectory, "Private/Platforms/Windows/" ) );
+		//	PrivateIncludePaths.Add( Path.Combine( ModuleDirectory, "Private/Platforms/Windows/MinHook/" ) );
+  //      }
+		//else if (Target.Platform == UnrealTargetPlatform.IOS)
+		//{
+		//	PrivateIncludePaths.Add( Path.Combine( ModuleDirectory, "Private/Platforms/IOS/" ) );
+		//}
     }
 }

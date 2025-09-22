@@ -39,6 +39,9 @@ LPVOID WINAPI RtlReAllocateHeap(HANDLE hHeap, DWORD dwFlags, LPVOID lpMem, SIZE_
 {
 	auto Ptr = OriginalRtlReAllocateHeap(hHeap, dwFlags, lpMem, dwBytes);
 	
+	if (hHeap == FWindowsInternalAllocator::InternalHeap)
+		return Ptr;
+
 	OnRtlFreeHeap(lpMem, 0);
 	OnRtlAllocateHeap(Ptr, dwBytes, 0);
 	return Ptr;
@@ -58,6 +61,13 @@ void FWinHook::StartHooking(MallocEvent OnMalloc, FreeEvent OnFree)
 	MH_CreateHook(::GetProcAddress(hntdll32, "RtlReAllocateHeap"), RtlReAllocateHeap, (void**)&OriginalRtlReAllocateHeap);
 
 	MH_EnableHook(MH_ALL_HOOKS);
+}
+
+
+void FWinHook::StopHooking()
+{
+	MH_DisableHook(MH_ALL_HOOKS);
+	MH_Uninitialize();
 }
 
 

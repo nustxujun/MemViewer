@@ -64,7 +64,6 @@ struct AllocTrackState
 	FCriticalSection InternalMallocMutex;
 	FDynamicTLS<bool> bInternalMalloc;
 	bool bCapturingStack = false;
-	bool bBackTrace = true;
 	bool bMallocTrace = true;
 	bool bStandAlone = false;
 	bool bTrackVM = false;
@@ -127,7 +126,9 @@ public:
 		if (Begin + n >= End)
 		{
 			//FScopeLock InternalLock(&GetState()->InternalMallocMutex);
-			GetState()->bInternalMalloc.SetValue(true);
+#if !PLATFORM_WINDOWS
+			FInternalMallocScope Scope;
+#endif
 #if PLATFORM_IOS || PLATFORM_ANDROID
 
 			ensure(ftruncate(Handle, (NumPages + 1) * PageSize) == 0);
@@ -180,7 +181,7 @@ public:
 			T* Page = 0;
 			return nullptr;
 #endif
-			GetState()->bInternalMalloc.SetValue(false);
+			//GetState()->bInternalMalloc.SetValue(false);
 
 			check(Page);
 			GetState()->Overhead += PageSize;
@@ -858,9 +859,8 @@ void FAllocationTracking::Initialize(const TCHAR* CmdLine, const TCHAR* InDir)
 	FParse::Value(CmdLine, TEXT("tracktype="), GetState()->TrackerType);
 
 	GetState()->bMallocTrace = FParse::Param(CmdLine, TEXT("nomalloc")) == false;
-	GetState()->bBackTrace = FParse::Param(CmdLine, TEXT("nostack")) == false;
-	GetState()->bCapturingStack = FParse::Param(CmdLine, TEXT("memalloclogger")) == true;
-	GetState()->bStandAlone = FParse::Param(CmdLine, TEXT("nollm")) == true;
+	GetState()->bCapturingStack = FParse::Param(CmdLine, TEXT("traceback")) == true;
+	//GetState()->bStandAlone = FParse::Param(CmdLine, TEXT("standalone")) == true;
 	GetState()->bTrackVM = FParse::Param(CmdLine, TEXT("trackvm")) == true;
 	auto& FileMgr = IFileManager::Get();
 	const FString Dir = InDir;
@@ -987,8 +987,6 @@ static int FastCaptureBackTraceOnWin64(uint64* BackTrace, uint32 MaxDepth)
 
 int FAllocationTracking::GetCurrentStackId()
 {
-	if (!GetState()->bBackTrace)
-		return -1;
 	static const int MAX_DEPTH = 1024;
 	uint64 Stack[MAX_DEPTH + 1];
 
@@ -1045,8 +1043,10 @@ void FAllocationTracking::TrackAllocation(const void* Ptr, uint32 Size, uint32 V
 		return;
 	}
 
+#if !PLATFORM_WINDOWS
     if (IsInternalMalloc())
         return;
+#endif
 
 	int StackId = GetCurrentStackId();
 	
@@ -1070,8 +1070,10 @@ void FAllocationTracking::TrackAllocation(const void* Ptr, uint32 Size, uint32 V
 
 void FAllocationTracking::TrackFree(const void* Ptr, uint32 VMUserTag)
 {
+#if !PLATFORM_WINDOWS
     if (IsInternalMalloc())
         return;
+#endif
 	auto Info = GetEnv()->Deallocations->Malloc();
 	Info->Ptr = (uint64)Ptr;
 	Info->End = GetCurrentTime();
@@ -1326,57 +1328,124 @@ static FAutoConsoleCommand AllocationTrackingTakeSnpashot(TEXT("alloc.take"), TE
 	}
 }));
 
-#include <sstream>
-#include <iomanip>
-static FAutoConsoleCommand AllocationTrackingGenerateSymbols(TEXT("alloc.gensymbols"), TEXT(""), FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
-{
-
-	auto& Env = *GetEnv();
-	FScopeLock Lock(&Env.TraceMutex);
-	GetState()->bInitialized = false;
-
-	FPlatformProcess::Sleep(1.f);
-
-	TSortedMap<int64, std::string> AddrMap;
-
-	Env.TraceMap.visit([&](const TraceKey& trace, auto){
-		for (int i = 0; i < trace.Size(); ++i)
-		{
-			AddrMap.Add(trace[i], {});
-		}
-	});
-
-	auto File = IFileManager::Get().CreateFileWriter(*FPaths::Combine(GetFolderPath(), TEXT("symbols")), FILEWRITE_AllowRead);
-
-
-	std::stringstream content;
-
-	std::string LastName;
-	for (auto& Item : AddrMap)
-	{
-		FProgramCounterSymbolInfo SymbolInfo;
-		FPlatformStackWalk::ProgramCounterToSymbolInfo(Item.Key, SymbolInfo);
-		Item.Value = SymbolInfo.FunctionName;
-		if (Item.Value.empty())
-		{
-			Item.Value = "unknown";
-		}
-
-		if (LastName != Item.Value)
-		{
-			LastName = Item.Value;
-			content << Item.Key << " " << Item.Value << "\n";
-		}
-	}
-
-
-
-	auto Str = content.str();
-
-	File->Serialize((void*)Str.c_str(), Str.length());
-
-	File->Flush();
-	delete File;
-
-}));
+//#include <sstream>
+//#include <iomanip>
+//
+//THIRD_PARTY_INCLUDES_START
+//#define _NO_CVCONST_H
+//#include <DbgHelp.h>
+//THIRD_PARTY_INCLUDES_END
+//
+//
+//
+//static FAutoConsoleCommand AllocationTrackingGenerateSymbols(TEXT("alloc.gensymbols"), TEXT(""), FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+//{
+//
+//	auto& Env = *GetEnv();
+//
+//	
+//
+//	{
+//		auto& FileMgr = IFileManager::Get();
+//		{
+//			TSharedPtr<FArchive> ModuleFile = MakeShareable<FArchive>(FileMgr.CreateFileWriter(*FPaths::Combine(GetFolderPath(), TEXT("modules")), FILEWRITE_AllowRead));
+//		
+//			int32 Count = 1;
+//			(*ModuleFile) << Count;
+//			uint64 BaseOfImage = 0;
+//			(*ModuleFile) << BaseOfImage;
+//			uint64 Size = (-1)>> 1;
+//
+//			(*ModuleFile) << Size;
+//
+//
+//			if (Count == 0)
+//			{
+//				UE_LOG(LogCore, Warning, TEXT("no modules found."));
+//			}
+//			(*ModuleFile) << Count;
+//			char Name[] = "Total";
+//			int Len = FCStringAnsi::Strlen(Name);
+//			(*ModuleFile) << Len;
+//			ModuleFile->Serialize(Name, Len);
+//		}
+//	}
+//
+//	auto Count = FPlatformStackWalk::GetProcessModuleCount();
+//	TArray< FStackWalkModuleInfo> ModuleInfos;
+//	ModuleInfos.SetNum(Count);
+//	Count = FPlatformStackWalk::GetProcessModuleSignatures(ModuleInfos.GetData(), Count);
+//
+//
+//	if (!SymInitialize(GetCurrentProcess(), NULL, false)) {
+//		return;
+//	}
+//
+//	static TArray<TPair<ULONG64, std::string>> symbols;
+//	symbols.Empty();
+//
+//	for (int i = 0; i < Count; ++i)
+//	{
+//		DWORD64 baseAddress = SymLoadModuleEx(
+//			GetCurrentProcess(),
+//			NULL,
+//			TCHAR_TO_ANSI(ModuleInfos[i].ImageName),
+//			NULL,
+//			0,
+//			0,
+//			NULL,
+//			0
+//		);
+//
+//		if (baseAddress == 0) {
+//			HRESULT hr = GetLastError();
+//			continue;
+//		}
+//
+//		if (!SymEnumSymbolsEx(GetCurrentProcess(), baseAddress, NULL, +[](PSYMBOL_INFO pSymInfo, ULONG SymbolSize, PVOID UserContext)->BOOL
+//			{
+//				DWORD sym_tag = 0;
+//
+//				SymGetTypeInfo(GetCurrentProcess(), pSymInfo->ModBase, pSymInfo->TypeIndex, TI_GET_SYMTAG, &sym_tag);
+//				if (sym_tag == SymTagFunctionType)
+//				{
+//					symbols.Emplace(pSymInfo->Address, pSymInfo->Name);
+//				}
+//				else
+//				{
+//					//std::cout << pSymInfo->Name << std::endl;
+//				}
+//
+//				return true;
+//			}, 0, 0)) {
+//
+//		}
+//
+//	}
+//	SymCleanup(GetCurrentProcess());
+//
+//	auto File = IFileManager::Get().CreateFileWriter(*FPaths::Combine(GetFolderPath(), TEXT("symbols")), FILEWRITE_AllowRead);
+//
+//
+//	std::stringstream content;
+//
+//	for (auto& Item : symbols)
+//	{
+//		//if (LastName != Item.Value)
+//		{
+//			//LastName = Item.Value;
+//			content << Item.Key << " " << Item.Value << std::endl;
+//		}
+//	}
+//
+//
+//
+//	auto Str = content.str();
+//
+//	File->Serialize((void*)Str.c_str(), Str.length());
+//
+//	File->Flush();
+//	delete File;
+//
+//}));
 

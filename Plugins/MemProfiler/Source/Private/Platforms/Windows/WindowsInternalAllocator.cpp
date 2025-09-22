@@ -1,4 +1,4 @@
-#pragma once 
+#include "WindowsInternalAllocator.h"
 #include "CoreMinimal.h"
 
 HANDLE FWindowsInternalAllocator::InternalHeap = nullptr;
