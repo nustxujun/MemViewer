@@ -104,13 +104,15 @@ public:
 		Handle = open(path, O_RDWR | O_CREAT, S_IRWXU);
 		checkf(Handle != -1, TEXT("errno: %d, path: %s"), errno, ANSI_TO_TCHAR(path));
 #elif PLATFORM_WINDOWS
-		FileHandle = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-		checkf(FileHandle != INVALID_HANDLE_VALUE, TEXT("errno: %d, path %s"), GetLastError(), ANSI_TO_TCHAR(path));
+		Handle = MakeShareable<FArchive>(IFileManager::Get().CreateFileWriter(ANSI_TO_TCHAR(path), FILEWRITE_AllowRead));
 
-		LARGE_INTEGER LI;
-		LI.QuadPart = (NumPages + 1) * PageSize;
-		ensure(SetFilePointerEx(FileHandle, LI, NULL, FILE_BEGIN) != INVALID_SET_FILE_POINTER);
-		ensure(SetEndOfFile(FileHandle) != 0);
+		//FileHandle = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+		//checkf(FileHandle != INVALID_HANDLE_VALUE, TEXT("errno: %d, path %s"), GetLastError(), ANSI_TO_TCHAR(path));
+
+		//LARGE_INTEGER LI;
+		//LI.QuadPart = (NumPages + 1) * PageSize;
+		//ensure(SetFilePointerEx(FileHandle, LI, NULL, FILE_BEGIN) != INVALID_SET_FILE_POINTER);
+		//ensure(SetEndOfFile(FileHandle) != 0);
 #endif
 	}
 
@@ -118,7 +120,7 @@ public:
 	{
 
 	}
-
+private:
 	T* Malloc(uint32 n = 1)
 	{
 		FScopeLock Lock(&SharedMutex);
@@ -140,43 +142,60 @@ public:
 			}
 			T* Page = (T*)mmap(0, PageSize, PROT_READ | PROT_WRITE, MAP_SHARED, Handle, NumPages * PageSize);
 #elif PLATFORM_WINDOWS
+			T* Page;
 
-			if (Buffer)
+
+
+
+			if (bAutoDrop)
 			{
-				if (!bAutoDrop)
+				Page = Buffer;
+				if (!Page)
 				{
-					FMemory::Memcpy(Buffer, ShadowBuffer, PageSize);
+					Page = (T*)FGenericPlatformInternalAllocator::Malloc(PageSize);
 				}
-
-				UnmapViewOfFile(Buffer);
-				//GetState()->Overhead -= PageSize;
-				CloseHandle(Handle);
-
-
 			}
-
-
-			LARGE_INTEGER LI;
-			LI.QuadPart = (NumPages + 1) * PageSize;
-			ensure(SetFilePointerEx(FileHandle, LI, NULL, FILE_BEGIN) != INVALID_SET_FILE_POINTER);
-			if (SetEndOfFile(FileHandle) != 0)
+			else
 			{
-				//checkf(false, TEXT("errno: %d"), GetLastError());
-				//checkf(false, TEXT("errno: %d"), GetLastError());
+				Page = (T*)FGenericPlatformInternalAllocator::Malloc(PageSize);
 			}
-			Handle = CreateFileMappingA(FileHandle, NULL, PAGE_READWRITE, LI.HighPart, LI.LowPart, NULL);
-			checkf(Handle != INVALID_HANDLE_VALUE && Handle != 0, TEXT("errno: %d"), GetLastError());
 
-			LI.QuadPart = NumPages * PageSize;
-			T* Page = (T*)MapViewOfFile(Handle, FILE_MAP_ALL_ACCESS, LI.HighPart, LI.LowPart, PageSize);
-			checkf(Page, TEXT("errno: %d"), ::GetLastError());
-			if (!bAutoDrop)
-			{
-				//ShadowBuffer = (T*)malloc(PageSize);
-				ShadowBuffer = (T*)FGenericPlatformInternalAllocator::Malloc(PageSize);
-				memset(ShadowBuffer, 0, PageSize);
+			//if (Buffer)
+			//{
+			//	if (!bAutoDrop)
+			//	{
+			//		FMemory::Memcpy(Buffer, ShadowBuffer, PageSize);
+			//	}
 
-			}
+			//	UnmapViewOfFile(Buffer);
+			//	//GetState()->Overhead -= PageSize;
+			//	CloseHandle(Handle);
+
+
+			//}
+
+
+			//LARGE_INTEGER LI;
+			//LI.QuadPart = (NumPages + 1) * PageSize;
+			//ensure(SetFilePointerEx(FileHandle, LI, NULL, FILE_BEGIN) != INVALID_SET_FILE_POINTER);
+			//if (SetEndOfFile(FileHandle) == 0)
+			//{
+			//	auto Err= GetLastError();
+			//	checkf(false, TEXT("errno: %d"), Err);
+			//}
+			//Handle = CreateFileMappingA(FileHandle, NULL, PAGE_READWRITE, LI.HighPart, LI.LowPart, NULL);
+			//checkf(Handle != INVALID_HANDLE_VALUE && Handle != 0, TEXT("errno: %d"), GetLastError());
+
+			//LI.QuadPart = NumPages * PageSize;
+			//T* Page = (T*)MapViewOfFile(Handle, FILE_MAP_ALL_ACCESS, LI.HighPart, LI.LowPart, PageSize);
+			//checkf(Page, TEXT("errno: %d"), ::GetLastError());
+			//if (!bAutoDrop)
+			//{
+			//	//ShadowBuffer = (T*)malloc(PageSize);
+			//	ShadowBuffer = (T*)FGenericPlatformInternalAllocator::Malloc(PageSize);
+			//	memset(ShadowBuffer, 0, PageSize);
+
+			//}
 #else
 			T* Page = 0;
 			return nullptr;
@@ -189,12 +208,7 @@ public:
 			NumPages++;
 
 			Buffer = Page;
-#if PLATFORM_WINDOWS
-			if (!bAutoDrop)
-				Begin = ShadowBuffer;
-			else
-#endif
-				Begin = Page;
+			Begin = Page;
 			End = (T*)((uint8*)Begin + PageSize);
 
 		}
@@ -202,6 +216,29 @@ public:
 		Begin += n;
 
 		return Cur;
+	}
+public:
+	T* WriteAndGet(const T* Elems, uint32 Size)
+	{
+		FScopeLock Lock(&SharedMutex);
+		auto Data = Malloc(Size);
+		FMemory::Memcpy(Data, Elems,  Size * sizeof(T));
+#if PLATFORM_WINDOWS
+		Handle->Serialize((uint8*)Elems, Size * sizeof(T));
+#endif
+		return Data;
+	}
+
+	void WriteOnly(const T* Elems, uint32 Size)
+	{
+#if PLATFORM_WINDOWS
+		FScopeLock Lock(&SharedMutex);
+		Handle->Serialize((uint8*)Elems, Size * sizeof(T));
+#else
+		FScopeLock Lock(&SharedMutex);
+		auto Data = Malloc(Size);
+		FMemory::Memcpy(Data, Elems, Size * sizeof(T));
+#endif
 	}
 
 private:
@@ -211,9 +248,7 @@ private:
 	uint64 PageSize = 0;
 	uint32 NumPages = 0;
 #if PLATFORM_WINDOWS
-	HANDLE FileHandle = 0;
-	HANDLE Handle = 0;
-	T* ShadowBuffer = 0;
+	TSharedPtr<FArchive> Handle;
 #elif PLATFORM_IOS || PLATFORM_ANDROID
 	int Handle = 0;
 #endif
@@ -981,7 +1016,7 @@ static int FastCaptureBackTraceOnWin64(uint64* BackTrace, uint32 MaxDepth)
 
 		BackTrace[iFrame] = ContextRecord.Rip;
 	}
-	return iFrame;
+	return iFrame - 1;
 }
 #endif
 
@@ -1018,10 +1053,9 @@ int FAllocationTracking::GetCurrentStackId()
 		if (TraceRet == Env.TraceMap.end())
 		{
 			auto TraceCount = Stack[0] + 1;
-			auto MappedTrace = Env.MappedStacks->Malloc((uint32)TraceCount);
-			//            auto Trace = Stacks->Malloc(TraceCount);
-			FMemory::Memcpy(MappedTrace, Stack, TraceCount * sizeof(uint64));
-			//            FMemory::Memcpy(Trace, Stack, TraceCount * sizeof(uint64));
+			//auto MappedTrace = Env.MappedStacks->Malloc((uint32)TraceCount);
+			//FMemory::Memcpy(MappedTrace, Stack, TraceCount * sizeof(uint64));
+			auto MappedTrace = Env.MappedStacks->WriteAndGet(Stack, TraceCount );
 
 			Key.Trace = MappedTrace;
 			StackId = StackIndex++;
@@ -1058,13 +1092,13 @@ void FAllocationTracking::TrackAllocation(const void* Ptr, uint32 Size, uint32 V
 	if (RealSize > Size)
 		Size = RealSize;
 #endif
-
-	auto Info = GetEnv()->Allocations->Malloc();
-	Info->Ptr = (uint64)Ptr;
-	Info->Size = Size;
-	Info->Trace = StackId;
-	Info->Begin = GetCurrentTime();
-	Info->Tag = VMUserTag;
+	AllocInfo Info;
+	Info.Ptr = (uint64)Ptr;
+	Info.Size = Size;
+	Info.Trace = StackId;
+	Info.Begin = GetCurrentTime();
+	Info.Tag = VMUserTag;
+	GetEnv()->Allocations->WriteOnly(&Info, 1);
 
 }
 
@@ -1074,10 +1108,11 @@ void FAllocationTracking::TrackFree(const void* Ptr, uint32 VMUserTag)
     if (IsInternalMalloc())
         return;
 #endif
-	auto Info = GetEnv()->Deallocations->Malloc();
-	Info->Ptr = (uint64)Ptr;
-	Info->End = GetCurrentTime();
-	Info->Tag = VMUserTag;
+	DeallocInfo Info;
+	Info.Ptr = (uint64)Ptr;
+	Info.End = GetCurrentTime();
+	Info.Tag = VMUserTag;
+	GetEnv()->Deallocations->WriteOnly(&Info, 1);
 }
 
 FCriticalSection& GetRHIMutex()

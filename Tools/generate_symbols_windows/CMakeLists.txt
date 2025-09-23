@@ -10,5 +10,4 @@ file(GLOB SOURCES
     "*.h"
 )
 
-# 添加可执行文件
 add_executable(gensym ${SOURCES})

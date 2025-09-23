@@ -281,7 +281,7 @@ struct Node
 
 std::vector<std::filesystem::path> directories;
 std::vector<std::filesystem::path> files;
-
+std::string executable_name;
 
 static std::string findSingleFile(const std::string& file_name)
 {
@@ -964,7 +964,7 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
 
 //	for (auto& path : file_names.symbol_file_paths)
 	{
-		OpenSymbolFile(file_names.symbol_file_path.c_str());
+		OpenSymbolFile(file_names.symbol_file_path.c_str(), executable_name);
 	}
     
     std::vector<Checkpoint> checkpoints;
@@ -1464,6 +1464,10 @@ int main(int num, char** args)
         {
             skip_compression = true;
         }
+        else if (path[0] == '-' && path[1] == 'e' && path[2] == '=')
+        {
+            executable_name = path.substr(3);
+        }
         else
         {
             if (std::filesystem::is_directory(path))
@@ -1472,6 +1476,11 @@ int main(int num, char** args)
                 files.push_back(path);
         }
 	}
+    
+    if (executable_name.empty())
+    {
+        Error("need module name,exmaple -e=MyProject");
+    }
 
     if (directories.empty())
         directories.push_back("./");
