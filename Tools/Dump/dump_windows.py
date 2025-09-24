@@ -188,7 +188,7 @@ def main():
             if os.path.exists(output_path + '.zip'):
                 if upload_api : 
                     upload_trace_file(output_path + '.zip')
-                # shutil.rmtree(trace_dir)
+                shutil.rmtree(trace_dir)
 
     print("done")
     pass

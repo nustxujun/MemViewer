@@ -1,5 +1,5 @@
 .vs/
 MemoryTraceParser/x64/
-build/
 Release/
+Temp/
 *.spec

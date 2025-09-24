@@ -297,6 +297,18 @@ struct TraceKey
 	}
 	uint64* Trace;
 
+	bool operator == (const TraceKey& Other) const
+	{
+		const auto Count = Trace[0];
+
+		for (uint64 i = 0; i < Count; ++i)
+		{
+			if (Trace[i] != Other.Trace[i])
+				return false;
+		}
+
+		return true;
+	}
 };
 
 
@@ -594,6 +606,11 @@ public:
 };
 
 
+uint32 GetTypeHash(const TraceKey& Key)
+{
+	return FCrc::MemCrc32(Key.Trace + 1, Key.Trace[0] * sizeof(int64));
+}
+
 
 struct AllocTrackEnvironment
 {
@@ -601,7 +618,7 @@ struct AllocTrackEnvironment
 	MappedAlloc<AllocInfo>* Allocations = 0;
 	MappedAlloc<DeallocInfo>* Deallocations = 0;
 
-	splay_map<TraceKey, uint32> TraceMap;
+	TMap<TraceKey, uint32, FDefaultInternalSetAllocator> TraceMap;
 
 	TSharedPtr<FArchive> FrameFile;
 	TSharedPtr<FArchive> RHIFile;
@@ -1047,23 +1064,27 @@ int FAllocationTracking::GetCurrentStackId()
 
 	{
 		FScopeLock Lock(&Env.TraceMutex);
-		auto TraceRet = Env.TraceMap.find(Key);
+		//auto TraceRet = Env.TraceMap.find(Key);
+		auto TraceRet = Env.TraceMap.Find(Key);
 
 		static uint32 StackIndex = 0;
-		if (TraceRet == Env.TraceMap.end())
+		if (TraceRet == nullptr)
 		{
 			auto TraceCount = Stack[0] + 1;
-			//auto MappedTrace = Env.MappedStacks->Malloc((uint32)TraceCount);
-			//FMemory::Memcpy(MappedTrace, Stack, TraceCount * sizeof(uint64));
 			auto MappedTrace = Env.MappedStacks->WriteAndGet(Stack, TraceCount );
 
 			Key.Trace = MappedTrace;
 			StackId = StackIndex++;
-			Env.TraceMap[Key] = StackId;
+			//Env.TraceMap[Key] = StackId;
+#if !PLATFORM_WINDOWS
+			FInternalMallocScope Scope;
+#endif
+			Env.TraceMap.Add(Key, StackId);
 		}
 		else
 		{
-			StackId = Env.TraceMap.get(TraceRet);
+			StackId = *TraceRet;
+			//StackId = Env.TraceMap.get(TraceRet);
 		}
 	}
 	
