@@ -31,13 +31,15 @@ int main(int argc, char* argv[])
 
     static std::vector<Sym> symbols;
 
-    if (!SymInitialize(GetCurrentProcess(), NULL, FALSE)) {
+    static auto Handle = GetCurrentProcess();
+
+    if (!SymInitialize(Handle, NULL, FALSE)) {
         std::cerr << "Failed to initialize DbgHelp: " << GetLastError() << std::endl;
         return 1;
     }
 
     DWORD64 baseAddress = SymLoadModuleEx(
-        GetCurrentProcess(),
+        Handle,
         NULL,
         argv[1],
         NULL,
@@ -49,14 +51,24 @@ int main(int argc, char* argv[])
 
     if (baseAddress == 0) {
         std::cerr << "Failed to load module: " << GetLastError() << std::endl;
-        SymCleanup(GetCurrentProcess());
+        SymCleanup(Handle);
         return 1;
     }
 
-    if (!SymEnumSymbolsEx(GetCurrentProcess(), baseAddress, NULL, +[](PSYMBOL_INFO pSymInfo, ULONG SymbolSize, PVOID UserContext)->BOOL
+    IMAGEHLP_MODULE ModuleInfo;
+    ModuleInfo.SizeOfStruct = sizeof(IMAGEHLP_MODULE);
+    SymGetModuleInfo((HANDLE)Handle, baseAddress, &ModuleInfo);
+
+    if (ModuleInfo.SymType != SymPdb)
+    {
+        std::cerr << "Can not find PDB file" << std::endl;
+        return 1;
+    }
+
+    if (!SymEnumSymbolsEx(Handle, baseAddress, NULL, +[](PSYMBOL_INFO pSymInfo, ULONG SymbolSize, PVOID UserContext)->BOOL
     {
         DWORD sym_tag = 0;
-        SymGetTypeInfo(GetCurrentProcess(), pSymInfo->ModBase, pSymInfo->TypeIndex, TI_GET_SYMTAG, &sym_tag);
+        SymGetTypeInfo(Handle, pSymInfo->ModBase, pSymInfo->TypeIndex, TI_GET_SYMTAG, &sym_tag);
         if (sym_tag == SymTagFunctionType)
         {
             symbols.emplace_back(pSymInfo->Address - pSymInfo->ModBase, pSymInfo->Name);
@@ -69,7 +81,7 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    SymCleanup(GetCurrentProcess());
+    SymCleanup(Handle);
 
     auto f = std::fstream(output, std::ios::out);
 

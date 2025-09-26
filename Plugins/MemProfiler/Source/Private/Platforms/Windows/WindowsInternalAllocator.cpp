@@ -1,7 +1,9 @@
+#if PLATFORM_WINDOWS
 #include "WindowsInternalAllocator.h"
 #include "CoreMinimal.h"
 
 HANDLE FWindowsInternalAllocator::InternalHeap = nullptr;
+std::atomic_int64_t TotalSize = 0;
 
 void FWindowsInternalAllocator::Initialize()
 {
@@ -11,10 +13,13 @@ void FWindowsInternalAllocator::Initialize()
 
 void* FWindowsInternalAllocator::Malloc(size_t Size)
 {
-	return HeapAlloc(InternalHeap,0,Size);
+	auto Ptr = HeapAlloc(InternalHeap,0,Size);
+	TotalSize += HeapSize(InternalHeap, 0, Ptr);
+	return Ptr;
 }
 void FWindowsInternalAllocator::Free(void* Ptr)
 {
+	TotalSize -= HeapSize(InternalHeap, 0, Ptr);
 	HeapFree(InternalHeap,0, Ptr);
 }
 
@@ -36,3 +41,8 @@ void* FWindowsInternalAllocator::Realloc(void* Ptr, size_t Size)
 	return NewPtr;
 }
 
+int64_t FWindowsInternalAllocator::GetAllocatedSize()
+{
+	return TotalSize;
+}
+#endif

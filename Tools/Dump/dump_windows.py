@@ -100,7 +100,7 @@ def main():
         if config.has_option("dump",'tag_name'):
             tag_name=config.get("dump",'tag_name')
         if config.has_option("dump",'force_generate_symbols'):
-            force_generate_symbols=config.get("dump",'force_generate_symbols')
+            force_generate_symbols=config.get("dump",'force_generate_symbols') == "True"
 
         
         if config.has_option("dump",'upload_api'):
@@ -143,7 +143,7 @@ def main():
         error("exec files path not found")
         os._exit(1)
 
-    info(f"found executable path: {exec_path}")
+    info(f"executable path found: {exec_path}")
     info(f"upload path: {upload_api}")
 
     output_dir = os.path.join(workspace, "output")
@@ -152,6 +152,8 @@ def main():
 
     symbols_path = os.path.join(workspace, "symbols")
     if not os.path.exists(symbols_path) or force_generate_symbols:
+        if os.path.exists(symbols_path):
+            os.remove(symbols_path)
         print ("generating symbols ...")
         os.system(f"{os.path.join(workspace, 'gensym.exe')} {exec_path} {symbols_path}")
     else:
@@ -188,7 +190,7 @@ def main():
             if os.path.exists(output_path + '.zip'):
                 if upload_api : 
                     upload_trace_file(output_path + '.zip')
-                shutil.rmtree(trace_dir)
+                # shutil.rmtree(trace_dir)
 
     print("done")
     pass

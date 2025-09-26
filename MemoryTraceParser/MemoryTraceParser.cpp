@@ -96,7 +96,7 @@ struct FrameInfo
     uint64_t available;
     int64_t overhead;
     
-    std::map<std::string, int64_t> customs;
+    std::map<std::string, uint32_t> customs;
 };
 
 struct RhiInfo
@@ -1006,7 +1006,7 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
             for (int i = 0; i < count; ++i)
             {
                 std::string name = read_string(frame_file);
-                int64_t size;
+                uint32_t size;
                 read_buffer(frame_file, size);
                 info.customs[name] = size;
             }

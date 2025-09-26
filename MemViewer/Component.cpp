@@ -879,6 +879,8 @@ void TimelineComp::setDatas(int index, TimelineData data)
 		MaxHight = std::max<float>(MaxHight, d);
 	}
 
+	MaxHight = std::min<float>(MaxHight, 10.0 * 1024 * 1024 * 1024);
+
 	data.datas.resize(Count);
 	//datas.push_back(std::move(data));
 	if (datas.size() <= index)

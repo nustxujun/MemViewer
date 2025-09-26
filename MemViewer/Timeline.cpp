@@ -82,9 +82,23 @@ void TimelineView::InitializeImpl()
 
         component.setDatas(1, std::move(data));
     }
+    //{
+    //    TimelineComp::TimelineData data;
+    //    data.color = IM_COL32(255, 200, 0, 200);
+    //    data.type = TimelineComp::TimelineData::Bar;
+    //    data.name = "ovh";
+
+    //    data.datas.reserve(trace->getMemoryInfos().size());
+    //    for (auto& info : trace->getMemoryInfos())
+    //    {
+    //        data.datas.push_back(info.overhead / 1024.0f / 1024.0f);
+    //    }
 
 
-    int cur_idx = 2;
+    //    component.setDatas(2, std::move(data));
+    //}
+
+    int cur_idx = 3;
 
     {
         std::map<std::string, std::vector<float>> custom_datas;

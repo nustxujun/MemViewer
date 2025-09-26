@@ -856,7 +856,7 @@ void FAllocationTracking::UpdateFrame()
 		for (auto& info : Infos)
 		{
 			uint32 len = info.first.length();
-			int64 size = info.second;
+			uint32 size = info.second;
 
 			(*FrameFile) << len;
 			FrameFile->Serialize((uint8*)info.first.c_str(), len);

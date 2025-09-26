@@ -3,6 +3,7 @@
 #if PLATFORM_WINDOWS
 #include "Platforms/Windows/WinHook.h"
 #include "Platforms/Windows/WindowsInternalAllocator.h"
+#include "Platforms/Windows/WindowsMemoryInfo.h"
 
 #elif PLATFORM_IOS
 #include "Platforms/IOS/IOSHook.h"

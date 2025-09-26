@@ -4,7 +4,7 @@
 
 malloc_zone_t* FIOSIntenralAllocator::InternalZone = 0;
 
-std::atomic_int64_t TotalSize = 0;
+static std::atomic_int64_t TotalSize = 0;
 
 
 void FIOSIntenralAllocator::Initialize()
@@ -14,8 +14,9 @@ void FIOSIntenralAllocator::Initialize()
 
 void* FIOSIntenralAllocator::Malloc(size_t Size)
 {
-	TotalSize += Size;
-	return malloc_zone_malloc(InternalZone, Size);
+	auto Ptr =  malloc_zone_malloc(InternalZone, Size);
+	TotalSize += malloc_size(Ptr);
+	return Ptr;
 }
 
 void FIOSIntenralAllocator::Free(void* Ptr)

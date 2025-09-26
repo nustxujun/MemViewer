@@ -11,6 +11,8 @@ public:
 	static void Free(void* Ptr);
 	static void* Realloc(void* Ptr, size_t Size);
 
+	static int64_t GetAllocatedSize();
+
 	static HANDLE InternalHeap;
 
 };
