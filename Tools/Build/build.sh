@@ -9,7 +9,7 @@ cd MemoryTraceParser
 rm -rf build
 mkdir build
 cd build
-cmake ..
+cmake .. -G Xcode
 cmake --build . --config Release
 
 if [ $? -ne 0 ]; then
@@ -17,4 +17,4 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-cp MemoryTraceParser ../../Release/MemoryTraceParser
+cp Release/MemoryTraceParser ../../Release/MemoryTraceParser

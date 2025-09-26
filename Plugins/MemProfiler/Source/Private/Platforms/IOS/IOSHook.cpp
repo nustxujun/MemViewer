@@ -36,14 +36,11 @@ FORCEINLINE void alloc_hooker(uint32_t type_flags, uintptr_t zone_ptr, uintptr_t
 
 	uint32_t alias = 0;
 	VM_GET_FLAGS_ALIAS(type_flags, alias);
-	// skip all VM allocation events from malloc_zone
-//	if (alias >= VM_MEMORY_MALLOC && alias <= VM_MEMORY_MALLOC_NANO) {
-//		return;
-//	}
 
 	if ((uintptr_t)FIOSIntenralAllocator::InternalZone == zone_ptr)
 		return;
 
+	//reserve gpu res
 	if ( alias != 0 && alias != VM_MEMORY_IOACCELERATOR && alias != VM_MEMORY_IOSURFACE)
 		return;
 

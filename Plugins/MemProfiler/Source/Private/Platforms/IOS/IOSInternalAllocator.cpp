@@ -1,7 +1,11 @@
 #if PLATFORM_IOS
 #include "IOSInternalAllocator.h"
 
+
 malloc_zone_t* FIOSIntenralAllocator::InternalZone = 0;
+
+std::atomic_int64_t TotalSize = 0;
+
 
 void FIOSIntenralAllocator::Initialize()
 {
@@ -10,11 +14,13 @@ void FIOSIntenralAllocator::Initialize()
 
 void* FIOSIntenralAllocator::Malloc(size_t Size)
 {
+	TotalSize += Size;
 	return malloc_zone_malloc(InternalZone, Size);
 }
 
 void FIOSIntenralAllocator::Free(void* Ptr)
 {
+	TotalSize -= malloc_size(Ptr);
 	malloc_zone_free(InternalZone, Ptr);
 }
 
@@ -38,5 +44,9 @@ void* FIOSIntenralAllocator::Realloc(void* Ptr, size_t Size)
 }
 
 
+int64 FIOSIntenralAllocator::GetAllocatedSize()
+{
+	return TotalSize;
+}
 
 #endif

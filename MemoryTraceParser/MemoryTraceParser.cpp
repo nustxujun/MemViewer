@@ -96,7 +96,7 @@ struct FrameInfo
     uint64_t available;
     int64_t overhead;
     
-    std::map<std::string, uint32_t> customs;
+    std::map<std::string, int64_t> customs;
 };
 
 struct RhiInfo
@@ -995,31 +995,23 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
             read_buffer(frame_file, info.available);
             read_buffer(frame_file, info.overhead);
 #if VER_GRT_EQ(7)
-            uint32_t len = 0;
-            read_buffer(frame_file, len);
-            if (len != 0)
+       
+            
+            int platform ;
+            read_buffer(frame_file, platform);
+
+            int count;
+            read_buffer(frame_file, count);
+            
+            for (int i = 0; i < count; ++i)
             {
-                int platform ;
-                read_buffer(frame_file, platform);
-                
-                if (platform == 2)// ios
-                {
-                    int count;
-                    read_buffer(frame_file, count);
-                    
-                    for (int i = 0; i < count; ++i)
-                    {
-                        std::string name = read_string(frame_file);
-                        int size;
-                        read_buffer(frame_file, size);
-                        info.customs[name] = size;
-                    }
-                }
-                else
-                {
-                    skip_buffer(frame_file,len - 4);
-                }
+                std::string name = read_string(frame_file);
+                int64_t size;
+                read_buffer(frame_file, size);
+                info.customs[name] = size;
             }
+             
+            
 #endif
             frames.push_back(info);
         }

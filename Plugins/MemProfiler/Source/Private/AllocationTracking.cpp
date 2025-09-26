@@ -138,7 +138,7 @@ private:
 			{
 				//				madvise(Buffer, PageSize, MADV_DONTNEED);
 				munmap(Buffer, PageSize);
-				GetState()->Overhead -= PageSize;
+//				GetState()->Overhead -= PageSize;
 			}
 			T* Page = (T*)mmap(0, PageSize, PROT_READ | PROT_WRITE, MAP_SHARED, Handle, NumPages * PageSize);
 #elif PLATFORM_WINDOWS
@@ -203,7 +203,7 @@ private:
 			//GetState()->bInternalMalloc.SetValue(false);
 
 			check(Page);
-			GetState()->Overhead += PageSize;
+//			GetState()->Overhead += PageSize;
 
 			NumPages++;
 
@@ -315,296 +315,6 @@ struct TraceKey
 
 
 
-template<typename T, typename Comp = std::less<T>>
-class splay_tree {
-public:
-	Comp comp;
-	unsigned long p_size = 0;
-
-	struct node {
-		node* left, * right;
-		node* parent;
-		T key;
-		node(const T& init = T()) : left(nullptr), right(nullptr), parent(nullptr), key(init) { }
-		~node() {
-
-		}
-	};
-
-	node* end_ptr = nullptr;
-	node* free_list = nullptr;
-	void* Block = nullptr;
-
-	node* root = 0;
-
-	void alloc_space()
-	{
-
-		const FPlatformMemoryConstants& MemoryConstants = FPlatformMemory::GetConstants();
-		auto alloc_size = MemoryConstants.PageSize * sizeof(node);
-
-		Block = FGenericPlatformInternalAllocator::Malloc(alloc_size);
-
-		GetState()->Overhead += alloc_size;
-		check(Block);
-		auto count = MemoryConstants.PageSize;
-		auto begin = (node*)Block;
-
-		*((node**)begin) = 0;
-		for (SIZE_T i = 1; i < count; ++i)
-		{
-			*((node**)(begin + i)) = (begin + i - 1);
-		}
-
-		free_list = begin + count - 1;
-
-	}
-
-	node* create_node(T key) {
-		node* n = nullptr;
-		if (free_list != nullptr)
-		{
-			n = free_list;
-
-			free_list = *(node**)n;
-
-		}
-		else
-		{
-			alloc_space();
-			return create_node(std::move(key));
-		}
-
-
-		new(n) node(std::move(key));
-		return n;
-	}
-
-	void destroy_node(node* n)
-	{
-		*(node**)n = free_list;
-		free_list = n;
-	}
-
-	void left_rotate(node* x) {
-		node* y = x->right;
-		if (y) {
-			x->right = y->left;
-			if (y->left) y->left->parent = x;
-			y->parent = x->parent;
-		}
-
-		if (!x->parent) root = y;
-		else if (x == x->parent->left) x->parent->left = y;
-		else x->parent->right = y;
-		if (y) y->left = x;
-		x->parent = y;
-	}
-
-	void right_rotate(node* x) {
-		node* y = x->left;
-		if (y) {
-			x->left = y->right;
-			if (y->right) y->right->parent = x;
-			y->parent = x->parent;
-		}
-		if (!x->parent) root = y;
-		else if (x == x->parent->left) x->parent->left = y;
-		else x->parent->right = y;
-		if (y) y->right = x;
-		x->parent = y;
-	}
-
-	void splay(node* x) {
-		while (x->parent) {
-			if (!x->parent->parent) {
-				if (x->parent->left == x) right_rotate(x->parent);
-				else left_rotate(x->parent);
-			}
-			else if (x->parent->left == x && x->parent->parent->left == x->parent) {
-				right_rotate(x->parent->parent);
-				right_rotate(x->parent);
-			}
-			else if (x->parent->right == x && x->parent->parent->right == x->parent) {
-				left_rotate(x->parent->parent);
-				left_rotate(x->parent);
-			}
-			else if (x->parent->left == x && x->parent->parent->right == x->parent) {
-				right_rotate(x->parent);
-				left_rotate(x->parent);
-			}
-			else {
-				left_rotate(x->parent);
-				right_rotate(x->parent);
-			}
-		}
-	}
-
-	void replace(node* u, node* v) {
-		if (!u->parent) root = v;
-		else if (u == u->parent->left) u->parent->left = v;
-		else u->parent->right = v;
-		if (v) v->parent = u->parent;
-	}
-
-	node* subtree_minimum(node* u) {
-		while (u->left) u = u->left;
-		return u;
-	}
-
-	node* subtree_maximum(node* u) {
-		while (u->right) u = u->right;
-		return u;
-	}
-public:
-	splay_tree() { alloc_space(); }
-
-	node* insert(const T& key) {
-		node* z = root;
-		node* p = nullptr;
-
-		while (z) {
-			p = z;
-			if (comp(z->key, key)) z = z->right;
-			else z = z->left;
-		}
-
-		z = create_node(key);
-		z->parent = p;
-
-		if (!p) root = z;
-		else if (comp(p->key, z->key)) p->right = z;
-		else p->left = z;
-
-		splay(z);
-		p_size++;
-
-		return z;
-	}
-
-	node* find(const T& key) {
-		node* z = root;
-		while (z) {
-			if (comp(z->key, key)) z = z->right;
-			else if (comp(key, z->key)) z = z->left;
-			else return z;
-		}
-		return nullptr;
-	}
-
-	void erase(const T& key) {
-		node* z = find(key);
-		if (!z) return;
-
-		splay(z);
-
-		if (!z->left) replace(z, z->right);
-		else if (!z->right) replace(z, z->left);
-		else {
-			node* y = subtree_minimum(z->right);
-			if (y->parent != z) {
-				replace(y, y->right);
-				y->right = z->right;
-				y->right->parent = y;
-			}
-			replace(z, y);
-			y->left = z->left;
-			y->left->parent = y;
-		}
-
-		destroy_node(z);
-		p_size--;
-	}
-
-	const T& minimum() { return subtree_minimum(root)->key; }
-	const T& maximum() { return subtree_maximum(root)->key; }
-
-	bool empty() const { return root == nullptr; }
-	unsigned long size() const { return p_size; }
-
-
-	void visit(TFunction<void(node*)>&& visitor)
-	{
-		auto visit_func = [&](auto node, auto& func){
-			if (!node)
-				return;
-
-			visitor(node);
-			func(node->left, func);
-			func(node->right, func);
-		};
-
-		visit_func(root, visit_func);
-	}
-};
-
-template<class Key, class Value, class Cmp = std::less<Key> >
-class splay_map
-{
-	using Type = std::pair<Key, Value >;
-	struct PairCmp
-	{
-	public:
-		bool operator()(const Type& a, const Type& b)const
-		{
-			static const Cmp cmp;
-			return cmp(a.first, b.first);
-		}
-	};
-
-	using Tree = splay_tree< Type, PairCmp>;
-	using NodePtr = typename Tree::node*;
-	Tree tree;
-public:
-	splay_map()//:tree(Cap)
-	{
-
-	};
-
-	Value& operator[](const Key& key)
-	{
-		auto mkey = std::make_pair(key, Value{});
-		auto n = tree.find(mkey);
-		if (!n)
-			n = tree.insert(mkey);
-		return n->key.second;
-	}
-
-	NodePtr find(const Key& key)
-	{
-		auto mkey = std::make_pair(key, Value{});
-		return tree.find(mkey);
-	}
-
-	NodePtr end()const
-	{
-		return 0;
-	}
-
-	void erase(const Key& key)
-	{
-		auto mkey = std::make_pair(key, Value{});
-		tree.erase(mkey);
-	}
-
-	void erase(NodePtr n)
-	{
-		tree.erase(n->key);
-	}
-
-	Value& get(NodePtr n)
-	{
-		return n->key.second;
-	}
-
-	void visit(TFunction<void(const Key& , const Value&)>&& visitor)
-	{
-		tree.visit([&](auto node){
-			visitor(node->key.first, node->key.second);
-		});
-	}
-};
-
 
 uint32 GetTypeHash(const TraceKey& Key)
 {
@@ -694,198 +404,18 @@ FString GetFilePath(const TCHAR* Filename)
 #endif
 }
 
-
-#if PLATFORM_IOS
-
-struct SegmentInfo
-{
-	mach_vm_address_t start;
-	mach_vm_address_t end;
-	std::string name;
-	std::string image;
-};
-
-std::vector<SegmentInfo> Segments = []
-{
-    std::vector<SegmentInfo> segments;
-    
-    uint32_t imageCount = _dyld_image_count();
-    for (uint32_t i = 0; i < imageCount; i++) {
-        const char* imagePath = _dyld_get_image_name(i);
-        std::string imageName = imagePath;
-        size_t lastSlash = imageName.find_last_of('/');
-        if (lastSlash != std::string::npos) {
-            imageName = imageName.substr(lastSlash + 1);
-        }
-        
-        const struct mach_header* header = (const struct mach_header*)_dyld_get_image_header(i);
-        intptr_t slide = _dyld_get_image_vmaddr_slide(i);
-        
-        if (header->magic == MH_MAGIC_64) {
-            const struct mach_header_64* header64 = (const struct mach_header_64*)header;
-            const struct load_command* cmd = (const struct load_command*)(header64 + 1);
-            
-            for (uint32_t j = 0; j < header64->ncmds; j++) {
-                if (cmd->cmd == LC_SEGMENT_64) {
-                    const struct segment_command_64* seg = (const struct segment_command_64*)cmd;
-                    mach_vm_address_t segStart = seg->vmaddr + slide;
-                    mach_vm_address_t segEnd = segStart + seg->vmsize;
-                    
-                    segments.push_back( {segStart, segEnd, std::string(seg->segname), imageName});
-                }
-                cmd = (const struct load_command*)((char*)cmd + cmd->cmdsize);
-            }
-        }
-    }
-
-	std::sort(segments.begin(), segments.end(), [](auto& a, auto& b ){
-		return a.start < b.start;
-	});
-    return segments;
-}();
-
-static std::map<uint32, std::string> RegionNameMapping = 
-{
-	{1, "MALLOC metadata"},
-	{2, "MALLOC_SMALL"},
-	{3, "MALLOC_LARGE"},
-	{4, "MALLOC_HUGE"},
-	{5, "SBRK"},
-	{6, "REALLOC"},
-	{7, "MALLOC_TINY"},
-	{8, "MALLOC_LARGE_REUSABLE"},
-	{9, "MALLOC_LARGE_REUSED"},
-
-	{10, "Performance tool data"},
-
-	{11, "MALLOC_NANO"},
-	{12, "MALLOC_MEDIUM"},
-	
-	{21, "IOKit"},
-	
-	{30, "Stack"},
-	{32, "shared memory"},
-	{35, "unshared memory"},
-	
-	{41, "Foundation"},
-	
-	{51, "LayerKit"},
-	{53, "WebKit Malloc"},
-	
-	{60, "dyld private memory"},
-	{62, "SQLite page cache"},
-	
-	{73, "Kernel Alloc Once"},
-	{78, "Activity Tracing(Genealogy)"},
-	
-	{87, "Skywalk Networking"},
-	{88, "IOSurface"},
-	{89, "libnetwork"},
-	{90, "Audio"},
-	
-	{100, "IOAccelerator"},
-	{104, "ColorSync"},
-};
-
-static std::map<std::string, uint32> GetIOSDirtySize(uint32& total_malloc, uint32& total_others)
-{
-	std::map<std::string,uint32> Dirties;
-	
-	struct RegionInfo
-	{
-		vm_address_t addr; 
-		uint32 dirty;
-		mach_vm_address_t imageStart;
-		mach_vm_address_t imageEnd;
-	};
-	vm_address_t address = 0;
-	vm_size_t size = 0;
-	
-	task_t task = mach_task_self();
-	
-	while (true) {
-		vm_region_extended_info_data_t info;
-		mach_msg_type_number_t infoCount = VM_REGION_EXTENDED_INFO_COUNT;
-		mach_port_t objectName = MACH_PORT_NULL;
-		
-		kern_return_t kr = vm_region_64(
-			task,
-			&address,
-			&size,
-			VM_REGION_EXTENDED_INFO,
-			(vm_region_info_t)&info,
-			&infoCount,
-			&objectName
-		);
-		
-		if (kr != KERN_SUCCESS) {
-			break; 
-		}
-
-		uint32 regionDirtySize = (info.pages_dirtied + info.pages_swapped_out) * vm_kernel_page_size;
-
-		if(info.user_tag == 0)
-		{
-			total_others += regionDirtySize;
-
-			auto pos = std::upper_bound(Segments.begin(), Segments.end(), address, [](auto& addr, auto& seg){
-				return addr < seg.end;	
-			});
-
-			if (pos != Segments.end() && address >= pos->start)
-			{
-				Dirties[pos->name] += regionDirtySize;
-			}
-			else if (info.external_pager != 0)
-			{
-				Dirties["mapped file"] += regionDirtySize;
-			}
-			else
-			{
-				Dirties["VM_ALLOCATE"] += regionDirtySize;
-			}
-		}
-		else
-		{
-			total_malloc += regionDirtySize;
-
-			auto RegName = RegionNameMapping.find(info.user_tag);
-			if (RegName == RegionNameMapping.end())
-			{
-				Dirties[std::string("Tag_") + std::to_string(info.user_tag)] += regionDirtySize;
-			}
-			else
-			{
-				Dirties[RegName->second] += regionDirtySize;
-			}
-
-		}
-
-
-		address += size;
-	}
-
-	
-	return Dirties;
-}
-
-
-
-
-#endif 
-
 FORCENOINLINE static void GetProgramSize()
 {
-	auto Stats = FPlatformMemory::GetStats();
-#if PLATFORM_IOS
-	uint32 total_malloc = 0;
-	uint32 total_others = 0;
-	auto dirty_size = GetIOSDirtySize(total_malloc,total_others );
-	uint64 Used = Stats.FootPrintMemory - total_others; // ignore memory which is not alloced from malloc
-#else 
-	uint64 Used = Stats.UsedPhysical;
-#endif
-	FAllocationTracking::TrackAllocation((void*)1, (uint32)Used, 0);
+//	auto Stats = FPlatformMemory::GetStats();
+//#if PLATFORM_IOS
+//	uint32 total_malloc = 0;
+//	uint32 total_others = 0;
+//	auto dirty_size = GetIOSDirtySize(total_malloc,total_others );
+//	int64 Used = Stats.FootPrintMemory - total_others; // ignore memory which is not alloced from malloc
+//#else 
+//	int64 Used = Stats.UsedPhysical;
+//#endif
+//	FAllocationTracking::TrackAllocation((void*)1, (uint32)std::max(0,Used), 0);
 }
 
 void FAllocationTracking::Initialize(const TCHAR* CmdLine, const TCHAR* InDir)
@@ -1311,42 +841,28 @@ void FAllocationTracking::UpdateFrame()
 	(*FrameFile) << FrameId;
 	(*FrameFile) << Used;
 	(*FrameFile) << Available;
-	int64 OH = GetState()->Overhead;
+	int64 OH = FGenericPlatformInternalAllocator::GetAllocatedSize();
 	(*FrameFile) << OH;
 
 
-	TArray<uint8> Data;
-#if PLATFORM_IOS
 
 	{
-		uint32 total_malloc = 0;
-		uint32 total_others = 0;
-		auto Dirties = GetIOSDirtySize(total_malloc,total_others );
-	
-		
-		FMemoryWriter Writer(Data);
-		
-		int Platform = 2; // 1: windows 2: ios 3:android
-		Writer << Platform;
-		uint32 Count = Dirties.size();
-		Writer << Count;
+		auto Infos = FGenericPlatformMemoryInfo::GetCustomMemoryInfo();
+		int Platform = 0;
+		(*FrameFile) << Platform;
+		uint32 Count = Infos.size();
+		(*FrameFile) << Count;
 
-		for (auto& info : Dirties)
+		for (auto& info : Infos)
 		{
 			uint32 len = info.first.length();
-			uint32 size = info.second;
+			int64 size = info.second;
 
-			Writer << len;
-			Writer.Serialize((uint8*)info.first.c_str(), len);
-			Writer << size;
+			(*FrameFile) << len;
+			FrameFile->Serialize((uint8*)info.first.c_str(), len);
+			(*FrameFile) << size;
 		}
 	}
-
-#endif
-
-	uint32 Count = Data.Num();
-	(*FrameFile) << Count;
-	FrameFile->Serialize(Data.GetData(), Count);
 
 
 	GetCurrentTime() += 1;

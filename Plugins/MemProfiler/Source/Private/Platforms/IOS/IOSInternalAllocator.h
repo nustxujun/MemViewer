@@ -12,7 +12,7 @@ public:
 	
 	static void* Realloc(void* Ptr, size_t Size);
 
-
+	static int64_t GetAllocatedSize();
 
 	static malloc_zone_t* InternalZone;
 };

@@ -5,9 +5,9 @@
 #include "Platforms/Windows/WindowsInternalAllocator.h"
 
 #elif PLATFORM_IOS
-#include "Platforms/iOS/iOSHook.h"
+#include "Platforms/IOS/IOSHook.h"
 #include "Platforms/IOS/IOSInternalAllocator.h"
-
+#include "Platforms/IOS/IOSMemoryInfo.h"
 
 #endif
 
