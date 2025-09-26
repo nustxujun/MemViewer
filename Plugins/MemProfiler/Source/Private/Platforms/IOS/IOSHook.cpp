@@ -85,7 +85,7 @@ FORCEINLINE void alloc_hooker(uint32_t type_flags, uintptr_t zone_ptr, uintptr_t
 		}
 		size = arg2;
 
-		OnMallocEvent((const void*)return_val, size, alias);
+		OnMallocEvent((const void*)return_val,std::max<uintptr_t>(malloc_size((const void*)return_val), size), alias);
 	}
 }
 

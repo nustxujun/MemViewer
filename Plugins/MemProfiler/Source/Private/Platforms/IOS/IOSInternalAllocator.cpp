@@ -17,4 +17,26 @@ void FIOSIntenralAllocator::Free(void* Ptr)
 {
 	malloc_zone_free(InternalZone, Ptr);
 }
+
+
+void* FIOSIntenralAllocator::Realloc(void* Ptr, size_t Size)
+{
+	void* NewPtr = 0;
+	if (Size > 0)
+		NewPtr= Malloc(Size);
+	if (Ptr)
+	{
+		if (NewPtr)
+		{
+			auto OldSize = malloc_size(Ptr);
+			check(OldSize <= Size);
+			FMemory::Memcpy(NewPtr, Ptr, OldSize);
+		}
+		Free(Ptr);
+	}
+	return NewPtr;
+}
+
+
+
 #endif

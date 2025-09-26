@@ -15,7 +15,7 @@ PVOID WINAPI RtlAllocateHeap(PVOID hHeap, ULONG _flags, SIZE_T _size)
 	if (hHeap == FWindowsInternalAllocator::InternalHeap)
 		return Ptr;
 
-	OnRtlAllocateHeap(Ptr, _size, 0);
+	OnRtlAllocateHeap(Ptr, std::max<SIZE_T>(_size, HeapSize(_heap,0,Ptr), 0);
 	return Ptr;
 }
 

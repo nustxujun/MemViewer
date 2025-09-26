@@ -1108,11 +1108,6 @@ void FAllocationTracking::TrackAllocation(const void* Ptr, uint32 Size, uint32 V
 	if (StackId < 0)
 		return;
 
-#if PLATFORM_IOS	
-	auto RealSize = malloc_size(Ptr);
-	if (RealSize > Size)
-		Size = RealSize;
-#endif
 	AllocInfo Info;
 	Info.Ptr = (uint64)Ptr;
 	Info.Size = Size;
