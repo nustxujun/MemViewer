@@ -1,8 +1,13 @@
 
 
-cd ../..
+cd ..
+python3 -m venv env
+. env/bin/activate
+pip3 install -r requirements.txt
 
-rm -rf Release
+cd ..
+
+# rm -rf Release
 mkdir Release
 
 cd MemoryTraceParser
@@ -17,4 +22,12 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-cp Release/MemoryTraceParser ../../Release/MemoryTraceParser
+cp -f Release/MemoryTraceParser ../../Release/MemoryTraceParser
+
+cd ../..
+pyinstaller --onefile "Tools/Dump/dump_ios/dump_ios.py" --distpath "Release" --workpath "Temp/build"
+
+
+deactivate
+
+rm -rf env

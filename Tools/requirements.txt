@@ -1,0 +1,3 @@
+tidevice
+colorama
+pyinstaller
