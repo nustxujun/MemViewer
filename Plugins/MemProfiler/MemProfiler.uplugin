@@ -22,7 +22,8 @@
 			"BlacklistTargets": [ "Server" ],
 			"BlacklistPlatforms": [
 				"Linux"
-			]
+			],
+			"WhitelistTargets": [ "Game", "Client" ]
 		}
 
 	],

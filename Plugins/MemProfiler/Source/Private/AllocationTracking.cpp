@@ -830,11 +830,8 @@ void FAllocationTracking::UpdateFrame()
 	auto& FrameFile = GetEnv()->FrameFile;
 
 	auto Stats = FPlatformMemory::GetStats();
-#if PLATFORM_IOS
-	uint64 Used = Stats.FootPrintMemory;
-#else 
+
 	uint64 Used = Stats.UsedPhysical;
-#endif
 	//		Used -= (uint64)FMath::Max(0ll,(int64) Overhead);
 	uint64 Available = Stats.AvailablePhysical;
 	int FrameId = GetCurrentTime();

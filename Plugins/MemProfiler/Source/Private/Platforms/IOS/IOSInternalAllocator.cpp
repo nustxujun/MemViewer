@@ -36,8 +36,7 @@ void* FIOSIntenralAllocator::Realloc(void* Ptr, size_t Size)
 		if (NewPtr)
 		{
 			auto OldSize = malloc_size(Ptr);
-			check(OldSize <= Size);
-			FMemory::Memcpy(NewPtr, Ptr, OldSize);
+			FMemory::Memcpy(NewPtr, Ptr, FMath::Min(OldSize,Size));
 		}
 		Free(Ptr);
 	}

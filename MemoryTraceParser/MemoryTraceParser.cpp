@@ -1013,6 +1013,8 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
              
             
 #endif
+            if (frame_file.eof() || !frame_file.good())
+                break;
             frames.push_back(info);
         }
     }
