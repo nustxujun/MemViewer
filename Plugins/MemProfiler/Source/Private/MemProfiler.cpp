@@ -13,21 +13,22 @@ static FString& GetDir()
 	return Dir;
 }
 
+static const TCHAR* CmdLineFile()
+{
+#if ENGINE_MAJOR_VERSION >= 5
+	return TEXT("uecommandline.txt");
+#else
+	return TEXT("ue4commandline.txt");
+#endif
+} 
+
+
 #if PLATFORM_IOS
 
 static auto GetStartCommandLine = [](){
-	bool HasCmdline = false;
-	@autoreleasepool {
-		HasCmdline = [[NSFileManager defaultManager] fileExistsAtPath:[[NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) objectAtIndex:0] stringByAppendingString: @"/ue4commandline.txt"]];
-	}
-	if (!HasCmdline)
-		return 0;
 	
-	// command line text file pushed to the documents folder
-	NSString* NSPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) objectAtIndex:0];
-
-	NSPath = [NSPath stringByAppendingString:[NSString stringWithUTF8String:"/ue4commandline.txt"]];
-	FString Path = [NSPath UTF8String];
+	FString Path = FString([NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) objectAtIndex:0]) + TEXT("/");
+	Path += CmdLineFile();
 	
 	FString Cmd;
 	auto file = std::fstream(TCHAR_TO_ANSI(*Path),std::ios::in);

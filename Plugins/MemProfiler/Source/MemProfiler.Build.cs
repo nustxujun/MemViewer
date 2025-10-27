@@ -9,6 +9,7 @@ public class MemProfiler : ModuleRules
 	{
 		PublicDependencyModuleNames.AddRange( new string[] { "Core",  "CoreUObject", "RenderCore","Engine"} );
 
+		PublicDependencyModuleNames.Add("RHI");
 		//if (Target.Platform == UnrealTargetPlatform.Win64)
 		//{
 		//	PrivateIncludePaths.Add( Path.Combine( ModuleDirectory, "Private/Platforms/Windows/" ) );
