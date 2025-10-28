@@ -98,7 +98,7 @@ void TimelineView::InitializeImpl()
     //    component.setDatas(2, std::move(data));
     //}
 
-    int cur_idx = 3;
+    int cur_idx = 2;
 
     {
         std::map<std::string, std::vector<float>> custom_datas;
@@ -162,6 +162,8 @@ void TimelineView::InitializeImpl()
 
         for (auto& info : custom_datas)
         {
+            Assert(info.first.length() != 0, "");
+
             TimelineComp::TimelineData data;
             data.color = get_color();
             data.type = TimelineComp::TimelineData::Bar;
