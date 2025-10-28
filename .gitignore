@@ -3,3 +3,4 @@ MemoryTraceParser/x64/
 Release/
 Temp/
 *.spec
+Tools/env/
