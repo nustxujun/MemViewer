@@ -89,6 +89,7 @@ def main():
     tag_name = args.n or ""
     exec_path = None
     force_generate_symbols = args.s
+    exec_name_part = None
 
     if args.u:
         global upload_api
@@ -101,13 +102,16 @@ def main():
             tag_name=config.get("dump",'tag_name')
         if config.has_option("dump",'force_generate_symbols'):
             force_generate_symbols=config.get("dump",'force_generate_symbols') == "True"
-
+        if config.has_option("dump","executale"):
+            exec_name_part =config.get("dump","executale")
         
         if config.has_option("dump",'upload_api'):
             upload_api=config.get("dump",'upload_api')
         pass
 
     
+    if exec_name_part == None:
+        exec_name_part = "Win64"
 
     if (game_path == None):
         error("game path not found")
@@ -134,10 +138,9 @@ def main():
 
         for root, dirs, files in os.walk(temp):
             for file in files:
-                if file.endswith(".exe"):
+                if file.endswith(".exe") and file.find(exec_name_part) != -1:
                     exec_path = os.path.join(bin_path, "Win64", file)
                     exec_name = file[:-4]
-
 
     if exec_path == None:
         error("exec files path not found")
@@ -190,7 +193,7 @@ def main():
             if os.path.exists(output_path + '.zip'):
                 if upload_api : 
                     upload_trace_file(output_path + '.zip')
-                # shutil.rmtree(trace_dir)
+                shutil.rmtree(trace_dir)
 
     print("done")
     pass

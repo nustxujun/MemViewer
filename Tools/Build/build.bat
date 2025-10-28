@@ -1,9 +1,16 @@
 @echo off
 set world_space=%cd%
 
-cd ../..
 
-rmdir /s /q Release
+cd ..
+
+call python3 -m venv env
+call .\env\Scripts\activate
+pip3 install -r requirements.txt
+
+
+cd ..
+@REM rmdir /s /q Release
 mkdir Release
 
 cd MemViewer
@@ -19,7 +26,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 
-xcopy .\Release\MemViewer.exe ..\..\Release\
+xcopy .\Release\MemViewer.exe ..\..\Release\ /Y
 
 
 cd ../..
@@ -35,7 +42,7 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 
-xcopy .\Release\MemoryTraceParser.exe ..\..\Release\
+xcopy .\Release\MemoryTraceParser.exe ..\..\Release\ /Y
 
 
 cd ../..
@@ -52,7 +59,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 
-xcopy .\Release\gensym.exe ..\..\..\Release\
+xcopy .\Release\gensym.exe ..\..\..\Release\ /Y
 
 cd ../../..
 echo %cd%
@@ -64,3 +71,9 @@ if %ERRORLEVEL% NEQ 0 (
     echo failed to build dump_windows
     exit /b 1
 )
+
+
+call deactivate
+rmdir /s /q Tools/env
+
+pause

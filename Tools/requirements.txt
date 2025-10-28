@@ -1,3 +1,4 @@
 tidevice
 colorama
 pyinstaller
+lief

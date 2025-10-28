@@ -30,4 +30,4 @@ pyinstaller --onefile "Tools/Dump/dump_ios/dump_ios.py" --distpath "Release" --w
 
 deactivate
 
-rm -rf env
+rm -rf Tools/env
