@@ -166,7 +166,8 @@ def main():
             tag_name=config.get("dump",'tag_name')
         if config.has_option("dump",'force_generate_symbols'):
             force_generate_symbols=config.get("dump",'force_generate_symbols')
-
+        if config .has_option("dump",'launch_app'):
+            launch_app=config.get("dump",'launch_app')
         
         if config.has_option("dump",'upload_api'):
             global upload_api
@@ -199,7 +200,6 @@ def main():
     print(f"working in {workspace}, computer name: {computer_name}, device: {device_type}, OS: {os_ver}")
 
 
-
     if args.u:
         upload_api = args.u
 
@@ -210,6 +210,19 @@ def main():
     if not tidevice_wrap.is_app_installed(device, bundleid):
         error(f"app {bundleid} not installed")
         os._exit(1)
+
+
+    if launch_app:
+        print(f"platform : {platform.system()}")
+        if platform.system() == 'Darwin':
+            envs = '{"UE4_FORCE_MALLOC_ANSI":"1"}'
+            cmd = f"xcrun devicectl device process launch --device {device_udid} -e '{envs}' --console --terminate-existing -q {bundleid}"
+            print(cmd)
+            os.system(cmd)
+        else:
+            error("launch app only supported on macOS")
+            os._exit(1)
+
 
     info(f"upload path: {upload_api}")
 
