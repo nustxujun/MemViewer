@@ -1,5 +1,4 @@
 #include "LuaMemProfiler.h"
-//#include "LuaState.h"
 #include "AllocationTracking.h"
 
 
@@ -8,11 +7,22 @@ struct FStackFrame
 {
 	std::string Name;
 	bool bDiscard = false;
-	FStackFrame(FString&& Tex):Name(TCHAR_TO_UTF8(*Tex)){};
+	FStackFrame(const TCHAR* Ctnt):Name(TCHAR_TO_UTF8(Ctnt)){};
 };
-static TArray<FStackFrame> CallStack;
-static int RecordCount = 0;
-static FArchive* File = 0;
+
+struct FCallstack
+{
+	TArray<FStackFrame> CallStack;
+	int RecordCount = 0;
+};
+
+static TMap<const void*, FCallstack > Threads;
+static const void* CurrentThread = 0;
+static FArchive*& GetFile()
+{
+	static FArchive* File = 0;
+	return File;
+}
 
 enum TrackType
 {
@@ -22,129 +32,146 @@ enum TrackType
 	TT_FREE
 };
 
-//static void TrackStack()
-//{
-//	int Diff = RecordCount - (int)CallStack.Num();
-//	if (Diff == 0)
-//		return;
-//
-//	if (Diff < 0)
-//	{
-//		int Type = TT_PUSH_STACK;
-//		for (int i = RecordCount; i < CallStack.Num(); ++i)
-//		{
-//			(*File) << Type;
-//			int len = CallStack[i].Name.length();
-//			(*File) << len;
-//			File->Serialize(CallStack[i].Name.data(), len);
-//		}
-//	}
-//	else
-//	{
-//		int Type = TT_POP_STACK;
-//		for (int i = RecordCount; i > CallStack.Num(); --i)
-//		{
-//			(*File) << Type;
-//		}
-//	}
-//
-//	RecordCount = CallStack.Num();
-//}
+static void TrackStack(const void* ThreadId)
+{
+	auto& Thread = Threads.FindOrAdd(ThreadId);
+	auto& CallStack = Thread.CallStack;
+	auto& RecordCount = Thread.RecordCount;
+	int Diff = RecordCount - (int)CallStack.Num();
+	if (Diff == 0)
+		return;
 
-//static void FuncHooker(lua_State* L, lua_Debug* ar)
-//{
-//	if (lua_getinfo(L, "nS", ar) == 0)
-//	{
-//		return;
-//	}
-//
-//
-//	switch (ar->event)
-//	{
-//	case LUA_HOOKTAILCALL:
-//		CallStack[CallStack.Num() - 1].bDiscard = true;
-//	case LUA_HOOKCALL:
-//	{
-//		FString Func = FString::Printf(TEXT("%s[%s](%s:%d)"),  UTF8_TO_TCHAR(ar->name?ar->name:""), UTF8_TO_TCHAR(ar->what), *FPaths::GetCleanFilename(ar->source ? FString(ar->source) : FString()), ar->linedefined);
-//		CallStack.Emplace(MoveTemp(Func));
-//	}
-//	break;
-//	case LUA_HOOKRET:
-//	{
-//		do
-//		{
-//			CallStack.RemoveAt(CallStack.Num() - 1, 1, false);
-//		} while (CallStack.Num() != 0 && CallStack[CallStack.Num() - 1].bDiscard);
-//
-//		TrackStack();
-//	}
-//	break;
-//	default:
-//		break;
-//	}
-//}
+	uint64 Id = (uint64)ThreadId;
+	if (Diff < 0)
+	{
+		int Count = CallStack.Num() - RecordCount;
+		if (Count > 0)
+		{
+			int Type = TT_PUSH_STACK;
+			(*GetFile()) << Type;
+			(*GetFile()) << Id;
+			(*GetFile()) << Count;
 
+			for (int i = RecordCount; i < CallStack.Num(); ++i)
+			{
+				int len = CallStack[i].Name.length();
+				(*GetFile()) << len;
+				GetFile()->Serialize(CallStack[i].Name.data(), len);
+			}
+		}
+	}
+	else
+	{
+		int Count = RecordCount - CallStack.Num();
+		if (Count > 0)
+		{
+			int Type = TT_POP_STACK;
+			(*GetFile()) << Type;
+			(*GetFile()) << Id;
+			(*GetFile()) << Count;
+		}
+	}
+
+	RecordCount = CallStack.Num();
+}
+
+
+
+#define LUA_HOOKCALL	0
+#define LUA_HOOKRET	1
+#define LUA_HOOKLINE	2
+#define LUA_HOOKCOUNT	3
+#define LUA_HOOKTAILCALL 4
+
+void FLuaMemProfiler::CallEvent(const struct lua_State* Thread, int Event, const TCHAR* Content)
+{
+	CurrentThread = Thread;
+	auto& CallStack = Threads.FindOrAdd(Thread).CallStack;
+	switch (Event)
+	{
+	case LUA_HOOKTAILCALL:
+		CallStack[CallStack.Num() - 1].bDiscard = true;
+	case LUA_HOOKCALL:
+	{
+		CallStack.Emplace(Content);
+	}
+	break;
+	case LUA_HOOKRET:
+	{
+		do
+		{
+			CallStack.RemoveAt(CallStack.Num() - 1, 1, false);
+		} while (CallStack.Num() != 0 && CallStack[CallStack.Num() - 1].bDiscard);
+	
+		TrackStack(Thread);
+	}
+	break;
+	default:
+		break;
+	}
+}
 
 
 static void TrackAlloc(void* Ptr, size_t Size)
 {
 	int Type = TT_ALLOC;
-	(*File) << Type;
+	(*GetFile()) << Type;
 	auto P = (uint64)Ptr;
-	(*File) << P;
+	(*GetFile()) << P;
 	auto S = (uint32)Size;
-	(*File) << S;
+	(*GetFile()) << S;
 	auto T = FAllocationTracking::GetCurrentFrame();
-	(*File) << T;
+	(*GetFile()) << T;
 }
 
-//static void TrackFree(void* Ptr)
-//{
-//	int Type = TT_FREE;
-//	(*File) << Type;
-//	auto P = (uint64)Ptr;
-//	(*File) << P;
-//	auto T = FAllocationTracking::GetCurrentFrame();
-//	(*File) << T;
-//}
+static void TrackFree(void* Ptr)
+{
+	int Type = TT_FREE;
+	(*GetFile()) << Type;
+	auto P = (uint64)Ptr;
+	(*GetFile()) << P;
+	auto T = FAllocationTracking::GetCurrentFrame();
+	(*GetFile()) << T;
+}
 
 
 
-//static void* LuaAllocHooker(void* ud, void* ptr, size_t osize, size_t nsize)
-//{
-//	TrackStack();
-//	if (nsize == 0) {
-//		TrackFree(ptr);
-//		FMemory::Free(ptr);
-//		return NULL;
-//	}
-//	else {
-//		if (ptr)
-//		{
-//			TrackFree(ptr);
-//		}
-//
-//		ptr = FMemory::Realloc(ptr, nsize);
-//
-//		TrackAlloc(ptr, nsize);
-//		return ptr;
-//	}
-//}
+void* FLuaMemProfiler::Allocator(void* ud, void* ptr, size_t osize, size_t nsize)
+{
+	if (CurrentThread)
+		TrackStack(CurrentThread);
+
+	if (nsize == 0) {
+		TrackFree(ptr);
+		FMemory::Free(ptr);
+		return NULL;
+	}
+	else {
+		if (ptr)
+		{
+			TrackFree(ptr);
+		}
+
+		ptr = FMemory::Realloc(ptr, nsize);
+
+		TrackAlloc(ptr, nsize);
+		return ptr;
+	}
+}
 
 void FLuaMemProfiler::Initialize(const TCHAR* CmdLine, const TCHAR* Dir)
 {	
+	bool bEnabled = FParse::Param(CmdLine, TEXT("tracklua")) == true;
+	if (bEnabled)
+		GetFile() = IFileManager::Get().CreateFileWriter(*FPaths::Combine(Dir, TEXT("luainfos")));
 }
 void FLuaMemProfiler::Start(const TCHAR* Dir)
 {
-	//GLuaAllocator = LuaAllocHooker;
-	//NS_SLUA::LuaState::onInitEvent.AddLambda([](auto State){
-	//	auto L = State->getLuaState();
 
-	//	lua_sethook(L, FuncHooker, LUA_MASKCALL | LUA_MASKRET, 0);
-
-	//});
-	//
-	//File = IFileManager::Get().CreateFileWriter(*FPaths::Combine(Dir, TEXT("luainfos")));
 }
 
 
+bool FLuaMemProfiler::IsEnabled()
+{
+	return GetFile() != 0;
+}
