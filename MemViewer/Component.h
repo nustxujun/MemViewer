@@ -202,7 +202,7 @@ struct TimelineComp
 
 	int Count = 0;
 	float MaxHight = 1;
-
+	float DynamicMaxHeight = 1;
 
 	struct TimelineData
 	{

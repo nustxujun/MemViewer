@@ -11,10 +11,13 @@
 #define __ALIGN_MASK(x,mask)    (((x)+(mask))&~(mask))
 #define ALIGN(x,a)              __ALIGN_MASK(x,((decltype(x))a)-1)
 
-#define Log(...) {std::cout <<"INFO:"<<std::format(__VA_ARGS__) << std::endl;}
-#define Warning( ...) {std::cout << "\n\nWARNING: " <<std::format(__VA_ARGS__) << std::endl;}
+#define Log(...) {print_log("INFO: " + std::format(__VA_ARGS__));}
+#define Warning( ...) {print_log("\n\nWARNING: " + std::format(__VA_ARGS__));}
 #define Error( ...) {Warning(__VA_ARGS__);*((int*)0) = 0;}
 #define Assert(cond, ...) {if (!(cond)) {Error(__VA_ARGS__);}}
+
+
+extern void print_log(std::string content);
 
 static std::string to_lower(const std::string& val)
 {
@@ -89,7 +92,8 @@ struct Counter
 	~Counter()
 	{
 		auto diff = (tm::now() - time).count() / 1000000000.0f;
-		std::cout << std::format("{0} cost {1} s\n", name, diff);
+
+		Log( "{0} cost {1} s\n", name, diff);
 	}
 };
 

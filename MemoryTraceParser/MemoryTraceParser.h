@@ -20,7 +20,7 @@
 #include <iostream>
 #include <chrono>
 #include <format>
-
+#include <assert.h>
 struct ModuleInfo
 {
 	uint64_t base_addr;
@@ -29,7 +29,7 @@ struct ModuleInfo
 };
 
 #define Log(...) std::cout << std::format(__VA_ARGS__) << std::endl
-#define Error( ...) {std::cout << "\n\nerror: " <<std::format(__VA_ARGS__) << std::endl;exit(-1);}
+#define Error( ...) {std::cout << "\n\nerror: " <<std::format(__VA_ARGS__) << std::endl;assert(false);exit(-1);}
 #define Assert(cond, ...) if (!(cond)) {Error(__VA_ARGS__);}
 
 

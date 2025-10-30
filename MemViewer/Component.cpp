@@ -607,10 +607,11 @@ void TimelineComp::Show(float width, float height, OnEvnet&& evn)
 	const float frame_width = grid_width / freq;
 	const float local_begin_x = scrolling.x + start_pos.x;
 	const float begin_x = local_begin_x - fmodf(local_begin_x, frame_width);
-	const auto frame_scaling = (size.y * 0.8f) / MaxHight;
+	const auto frame_scaling = (size.y * 0.8f) / DynamicMaxHeight;//MaxHight;
 	const auto std_step = frame_scaling * 512;
 	const auto real_frame_width = std::max(1.0f, frame_width <= 3 ? frame_width : frame_width - 1);
 
+	float TempMaxHeight = 1;
 
 	uint32_t overlay_frame = std::floor((io.MousePos.x - begin_x) / frame_width);
 
@@ -643,6 +644,7 @@ void TimelineComp::Show(float width, float height, OnEvnet&& evn)
 				if (x > end_pos.x)
 					break;
 
+				TempMaxHeight = std::max<float>(TempMaxHeight, data->datas[frame]);
 
 				auto rect_min_y = end_pos.y - data->datas[frame] * frame_scaling;
 
@@ -690,6 +692,7 @@ void TimelineComp::Show(float width, float height, OnEvnet&& evn)
 			}
 		}
 	}
+	DynamicMaxHeight = std::min<float>(TempMaxHeight, 10.0 * 1024 * 1024 * 1024);
 
 
 	//drag

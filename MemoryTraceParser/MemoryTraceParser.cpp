@@ -724,12 +724,16 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
 #if VER_GRT_EQ(4)
     std::vector<AllocInfo> lua_alloc_infos;
     Node::Ptr lua_root = std::make_shared<Node>();
-    Node* cur_node = lua_root.get();
     uint32_t num_lua_node = 2;
     auto lua_alloc_fut = async_run ([&](){
+        Node* root = lua_root.get();
         auto unknown = lua_root->findOrCreateChild("unknown");
         unknown->index = 1;
         std::map<uint64_t, uint32_t> mapped_alloc;
+        std::map<uint64_t, Node*> cur_nodes;
+        int thread_count = 0;
+        Node* node_on_current_thread = 0;
+
         while(!lua_file.eof() && lua_file.good())
         {
             int type;
@@ -740,16 +744,47 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
             {
                 case 0:
                 {
-                    std::string name = read_string(lua_file);
-                    cur_node = cur_node->findOrCreateChild(name).get();
-                    if (cur_node->index == 0)
+                    uint64_t threadid;
+                    read_buffer(lua_file,threadid);
+                    int count = 0;
+                    read_buffer(lua_file,count);
+                    for (int i = 0; i < count; ++i)
                     {
-                        cur_node->index = num_lua_node++;
+                        std::string name = read_string(lua_file);
+                        auto& cur_node = cur_nodes[threadid];
+                        if (!cur_node)
+                        {
+                            cur_node = root->findOrCreateChild(std::format("t{} {}",thread_count++, name )).get();
+                        }
+                        else
+                            cur_node = cur_node->findOrCreateChild(name).get();
+
+                        if (cur_node->index == 0)
+                        {
+                            cur_node->index = num_lua_node++;
+                        }
+
+                        node_on_current_thread = cur_node;
+                        Assert(node_on_current_thread != 0, "");
                     }
                 }
                     break;
                 case 1:
-                    cur_node = cur_node->parent;
+                    {
+                        uint64_t threadid;
+                        read_buffer(lua_file, threadid);
+                        int count = 0;
+                        read_buffer(lua_file, count);
+                        auto& cur_node = cur_nodes[threadid];
+
+                        for (int i = 0; i < count; ++i)
+                        {
+                            cur_node = cur_node->parent;
+                            Assert(cur_node,"stack is out of range");
+                        }
+                        node_on_current_thread = cur_node;
+                        Assert(node_on_current_thread != 0, "");
+                    }
                     break;
                 case 2:
                 {
@@ -758,10 +793,13 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
                     read_buffer(lua_file,alloc.size);
                     read_buffer(lua_file, alloc.start);
                     alloc.end = -1;
-                    if (cur_node == lua_root.get())
+
+                    if (node_on_current_thread == lua_root.get() || node_on_current_thread == nullptr)
                         alloc.trace = unknown->index;
                     else
-                        alloc.trace = cur_node->index;
+                        alloc.trace = node_on_current_thread->index;
+
+
                     lua_alloc_infos.push_back(alloc);
                     mapped_alloc[alloc.ptr] =lua_alloc_infos.size() - 1;
                 }
@@ -783,6 +821,7 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
                             Assert(alloc->end == -1, "invalid lua free");
                         }
                         alloc->end = end;
+                        mapped_alloc.erase(ret);
                     }
                 }
                     break;
@@ -875,7 +914,7 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
                 continue;
 //                return true;
             }
-            if (alloc_file.bad())
+            if (!stack_file.good())
                 return false;
 
             std::vector<uint64_t> addrs;
@@ -890,7 +929,7 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
                 addrs.push_back(addr);
             }
 
-            if (alloc_file.bad())
+            if (!stack_file.good())
                 return false;
             
             std::reverse(addrs.begin(), addrs.end());

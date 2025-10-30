@@ -59,6 +59,7 @@ def upload_trace_file(file_path):
             return True
     except requests.exceptions.RequestException as e:
         print(f"trace 上传失败: {e}")
+        os._exit(1)
         return False
 
 def main():
@@ -164,7 +165,7 @@ def main():
 
     if not os.path.exists(symbols_path):
         error("failed to generate symbols")
-        os._exit(1)
+        # os._exit(1)
 
     info(f"symbols path: {symbols_path}")
 

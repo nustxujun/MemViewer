@@ -8,6 +8,17 @@
 #include <functional>
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
+#include <mutex>
+
+void print_log(std::string content)
+{
+	static std::mutex Mutex;
+	std::lock_guard<std::mutex> lock(Mutex);
+
+	std::cout << content << std::endl;
+}
+
+
 std::string get_or_create_default_file(int id, const char* path)
 {
 	auto work_dir = std::filesystem::current_path();

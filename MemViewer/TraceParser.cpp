@@ -432,6 +432,7 @@ bool TraceData::ParseTraceFile(const std::string& path, TraceData* trace)
 	uint32_t num_lua_node = 0;
 	if (version >= 4)
 	{
+		node_map.clear();
 		read(num_lua_node);
 
 		lua_calltree = Calltree::create(num_lua_node);
@@ -439,6 +440,7 @@ bool TraceData::ParseTraceFile(const std::string& path, TraceData* trace)
 
 		read(cur_depth);
 		lua_calltree->root->name = read_string();
+		node_map.push_back(0);
 
 		auto parent = lua_calltree->root;
 
@@ -478,6 +480,7 @@ bool TraceData::ParseTraceFile(const std::string& path, TraceData* trace)
 				}
 			}
 
+			node_map.push_back(node_count);
 			cur = new ((*lua_calltree)[node_count]) Node();
 			cur->name = read_string();
 			cur->parent = {lua_calltree, lua_calltree->getIndex(parent)};
@@ -558,7 +561,8 @@ bool TraceData::ParseTraceFile(const std::string& path, TraceData* trace)
 
 		trace->calltree = calltree;
 		trace->allocs = std::move(allocs);
-		//Data.node_count = stack_len;
+		// trace->allocs = trace->lua_allocs;
+		// trace->calltree = trace->lua_calltree;
 
 		trace->memoryinfos = std::move(totals);
 		trace->objects = std::move(objects);
