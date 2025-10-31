@@ -85,10 +85,14 @@ void CallstackView::UpdateImpl()
 {
 	Counter counter("update treeview");
 
-	if (!GetTrace()->getCalltree())
+	if (!GetTrace()->getCalltree() && show_type == 0)
 		return;
 
-	calltree = GetTrace()->getCalltree()->clone();
+
+	if (!GetTrace()->getLuaCalltree() && show_type == 1)
+		return;
+
+	calltree = show_type == 0 ? GetTrace()->getCalltree()->clone(): GetTrace()->getLuaCalltree()->clone();
 
 	CalSize(calltree->get(0), !filters.empty());
 }
@@ -134,7 +138,21 @@ void CallstackView::MakeTreeView(Node* node)
 
 void CallstackView::ShowImpl()
 {
-
+	{
+		const char* config_files[] = { "native memory","lua memory" };
+		auto selected = show_type;
+		ImGui::SetNextItemWidth(250);
+		if (ImGui::Combo("##source_type", &selected, config_files, 2))
+		{
+			if (selected != show_type)
+			{
+				show_type = selected;
+				Initialize();
+				Update();
+			}
+		}
+	}
+	ImGui::SameLine();
 	ImGui::BeginChild("filter", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY);
 
 	if (ImGui::Checkbox("Aa", &case_sensitive))

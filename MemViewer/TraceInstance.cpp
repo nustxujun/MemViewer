@@ -125,7 +125,7 @@ void TraceData::ShrinkCalltree()
 
 
 
-	ret_tree->node_count = num_node - freelist.size();
+	ret_tree->node_count = std::max<int>(1, num_node - freelist.size());
 
 	for (int i = ret_tree->node_count; i < tree->node_count; ++i)
 	{

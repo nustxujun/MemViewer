@@ -561,8 +561,8 @@ bool TraceData::ParseTraceFile(const std::string& path, TraceData* trace)
 
 		trace->calltree = calltree;
 		trace->allocs = std::move(allocs);
-		// trace->allocs = trace->lua_allocs;
-		// trace->calltree = trace->lua_calltree;
+		 //trace->allocs = trace->lua_allocs;
+		 //trace->calltree = trace->lua_calltree;
 
 		trace->memoryinfos = std::move(totals);
 		trace->objects = std::move(objects);

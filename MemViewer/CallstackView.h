@@ -21,6 +21,7 @@ private:
 
 	Calltree::Ptr calltree;
 	std::vector<std::string> filters;
+	int show_type = 0;
 	bool case_sensitive = false;
 	char input_buffer[1024] = {};
 

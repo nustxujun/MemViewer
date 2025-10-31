@@ -55,14 +55,14 @@ private:
 	//std::vector<std::vector<float>> timeline_datas;
 
 	std::vector<std::string> symbol_filters;
+	std::array<char, 1024> temp;
 	uint32_t selected_category = 0;
 	uint32_t selected_sub_category = 0;
 	uint32_t selected_symbol = 0;
 	int show_level = 0;
 	int scaling = 1;
 	int selected_config_file = 0;
-	std::array<char, 1024> temp ;
-
+	int show_type = 0;
 
 	//int selected_config_file = 0;
 };

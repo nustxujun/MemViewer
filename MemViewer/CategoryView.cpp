@@ -50,9 +50,9 @@ uint32_t CategoryView::findCategory()
 {
 
 	auto trace = GetTrace();
-	auto node_count = trace->getCalltree()->node_count;
+	auto calltree = show_type == 0 ? trace->getCalltree() : trace->getLuaCalltree();
+	auto node_count = calltree->node_count;
 
-	auto calltree = trace->getCalltree();
 
 	struct InternalAllcInfo
 	{
@@ -288,8 +288,11 @@ void CategoryView::InitializeImpl()
 }
 void CategoryView::UpdateImpl()
 {
-	if (!GetTrace()->getCalltree())
+	if (!GetTrace()->getCalltree() && show_type == 0)
 		return;
+
+	if (!GetTrace()->getLuaCalltree() && show_type == 1)
+
 	Counter counter("update category");
 	for (auto& c : categories)
 		c.total_size = 0;
@@ -340,7 +343,7 @@ void CategoryView::UpdateSubCategory()
 
 	sub_alloc_infos.clear();
 	sub_alloc_infos.resize(sub_cats.size());
-	auto calltree = GetTrace()->getCalltree();
+	auto calltree = show_type == 0 ? GetTrace()->getCalltree(): GetTrace()->getLuaCalltree();
 
 	int untagged_id = GetUntagged(sub_cats);
 
@@ -425,7 +428,8 @@ void CategoryView::MakeSubCategory()
 
 void CategoryView::MakeSymbols()
 {
-	auto calltree = GetTrace()->getCalltree();
+	auto calltree = show_type == 0 ? GetTrace()->getCalltree() : GetTrace()->getLuaCalltree();
+
 	uint32_t idx = 0;
 	for (auto& alloc : sub_alloc_infos[sub_categories[categories[selected_category].index][selected_sub_category].index])
 	{
@@ -532,13 +536,21 @@ void CategoryView::ShowImpl()
 	const ImGuiChildFlags child_flags = ImGuiChildFlags_ResizeX;
 	const ImGuiTableFlags tbl_flags = ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody;
 
-
-	//if (ImGui::Button(is_top_down ? "Top down" : "Bottom up"))
-	//{
-	//	is_top_down = !is_top_down;
-	//}
-
-	//ImGui::SameLine();
+	{
+		const char* config_files[] = { "native memory","lua memory" };
+		auto selected = show_type;
+		ImGui::SetNextItemWidth(250);
+		if (ImGui::Combo("##source_type", &selected, config_files, 2))
+		{
+			if (selected != show_type)
+			{
+				show_type = selected;
+				Initialize();
+				Update();
+			}
+		}
+	}
+	ImGui::SameLine();
 
 	const char* config_files[]={"category_config.ini","llm_config.ini"};
 	auto selected = selected_config_file;

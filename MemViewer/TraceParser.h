@@ -81,7 +81,7 @@ struct Calltree
 
 	Calltree(int count): node_count(count)
 	{
-		root = (Node*) malloc(sizeof(Node) * count);
+		root = (Node*) malloc(sizeof(Node) * std::max<int>(1, count));
 		new (root)Node();
 		root->name = "root";
 	}

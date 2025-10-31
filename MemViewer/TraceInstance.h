@@ -131,6 +131,9 @@ public:
 	const std::vector<AllocInfo>& getTotalAllocs() { return data->allocs; }
 	const std::vector<AllocInfo>& getAllocs(){return ranged_data->allocs;}
 
+	const std::vector<AllocInfo>& getTotalLuaAllocs() { return data->lua_allocs; }
+	const std::vector<AllocInfo>& getLuaAllocs() { return ranged_data->lua_allocs; }
+
 	const std::vector<TotalInfo>& getMemoryInfos(){return data->memoryinfos;}
 	const std::vector< Checkpoint>& getCheckpoints(){return data->checkpoints;}
 
