@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <filesystem>
 #define _NO_CVCONST_H
 #include <dbghelp.h>
 
@@ -21,6 +22,14 @@ int main(int argc, char* argv[])
     if (argc >= 3)
     {
         output = argv[2];
+    }
+
+    std::string exe_path = argv[1];
+
+    if (!std::filesystem::exists(exe_path))
+    {
+        std::cerr << "Failed to find path " << exe_path << std::endl;
+        return 1;
     }
 
     struct Sym

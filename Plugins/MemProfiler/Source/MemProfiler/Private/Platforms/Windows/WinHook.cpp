@@ -4,15 +4,16 @@
 #include "Windows/WindowsHWrapper.h"
 #include "WindowsInternalAllocator.h"
 
+static constexpr uint32_t InternalFlag = 1 << 31;
 
 typedef PVOID(WINAPI* RtlAllocateHeap_t)(PVOID _heap, ULONG _flags, SIZE_T _size);
 RtlAllocateHeap_t OriginalRtlAllocateHeap;
 MallocEvent OnRtlAllocateHeap;
 PVOID WINAPI MyRtlAllocateHeap(PVOID hHeap, ULONG _flags, SIZE_T _size)
 {
-	auto Ptr = OriginalRtlAllocateHeap(hHeap, _flags, _size);
+	auto Ptr = OriginalRtlAllocateHeap(hHeap, _flags | InternalFlag, _size);
 
-	if (hHeap == FWindowsInternalAllocator::InternalHeap)
+	if (hHeap == FWindowsInternalAllocator::InternalHeap || Ptr == nullptr || (_flags & InternalFlag) != 0)
 		return Ptr;
 
 	OnRtlAllocateHeap(Ptr, FMath::Max<SIZE_T>(_size, HeapSize(hHeap,0,Ptr)), 0);
@@ -24,9 +25,9 @@ RtlFreeHeap_t OriginalRtlFreeHeap;
 FreeEvent OnRtlFreeHeap;
 BOOLEAN WINAPI MyRtlFreeHeap(PVOID hHeap, ULONG dwFlags, PVOID lpMem)
 {
-	auto Result = OriginalRtlFreeHeap(hHeap, dwFlags, lpMem);
+	auto Result = OriginalRtlFreeHeap(hHeap, dwFlags | InternalFlag, lpMem);
 
-	if (hHeap == FWindowsInternalAllocator::InternalHeap)
+	if (hHeap == FWindowsInternalAllocator::InternalHeap|| (dwFlags & InternalFlag) != 0)
 		return Result;
 
 	OnRtlFreeHeap(lpMem,  0);
@@ -37,9 +38,9 @@ typedef LPVOID(WINAPI* RtlReAllocateHeap_t)(HANDLE hHeap, DWORD dwFlags, LPVOID 
 RtlReAllocateHeap_t OriginalRtlReAllocateHeap;
 LPVOID WINAPI MyRtlReAllocateHeap(HANDLE hHeap, DWORD dwFlags, LPVOID lpMem, SIZE_T dwBytes)
 {
-	auto Ptr = OriginalRtlReAllocateHeap(hHeap, dwFlags, lpMem, dwBytes);
+	auto Ptr = OriginalRtlReAllocateHeap(hHeap, dwFlags | InternalFlag, lpMem, dwBytes);
 	
-	if (hHeap == FWindowsInternalAllocator::InternalHeap)
+	if (hHeap == FWindowsInternalAllocator::InternalHeap || Ptr == nullptr|| (dwFlags & InternalFlag) != 0)
 		return Ptr;
 
 	OnRtlFreeHeap(lpMem, 0);
