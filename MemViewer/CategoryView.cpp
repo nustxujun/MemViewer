@@ -17,7 +17,6 @@
 
 #undef min
 #undef max
-
 uint32_t CategoryView::GetUntagged(const std::vector<Category>& cats)
 {
 	uint32_t cat_idx = 0;
@@ -133,10 +132,12 @@ void CategoryView::InitializeImpl()
 	auto trace = GetTrace();
 	{
 		std::string path;
-		if (selected_config_file == 0)
-			path = get_or_create_default_file(IDR_CATEGORY_CONFIG_INI, "category_config.ini");
-		else
-			path = get_or_create_default_file(IDR_LLM_CONFIG_INI, "llm_config.ini");
+		switch (selected_config_file)
+		{
+			case 0: path = get_or_create_default_file(IDR_CATEGORY_CONFIG_INI, "category_config.ini"); break;
+			case 1: path = get_or_create_default_file(IDR_LLM_CONFIG_INI, "llm_config.ini"); break;
+			case 2: path = get_or_create_default_file(IDR_LUA_CATEGORY_CONFIG_INI, "lua_category_config.ini"); break;
+		}
 
 		auto f = std::fstream(path, std::ios::in);
 		std::string content;
@@ -292,6 +293,7 @@ void CategoryView::UpdateImpl()
 		return;
 
 	if (!GetTrace()->getLuaCalltree() && show_type == 1)
+		return;
 
 	Counter counter("update category");
 	for (auto& c : categories)
@@ -407,7 +409,9 @@ void CategoryView::MakeCategory()
 void CategoryView::MakeSubCategory()
 {
 	uint32_t idx = 0;
-	for (auto& cat : sub_categories[categories[selected_category].index])
+	auto& cate = categories.at(selected_category);
+	auto& sub = sub_categories.at(cate.index);
+	for (auto& cat : sub)
 	{
 		ImGui::TableNextRow();
 		ImGui::TableNextColumn();
@@ -552,10 +556,10 @@ void CategoryView::ShowImpl()
 	}
 	ImGui::SameLine();
 
-	const char* config_files[]={"category_config.ini","llm_config.ini"};
+	const char* config_files[]={"category_config.ini","llm_config.ini", "lua_category_config.ini"};
 	auto selected = selected_config_file;
 	ImGui::SetNextItemWidth(250);
-	if (ImGui::Combo("##config_type", &selected, config_files, 2))
+	if (ImGui::Combo("##config_type", &selected, config_files,sizeof(config_files) / sizeof(const char*)))
 	{
 		if (selected != selected_config_file)
 		{

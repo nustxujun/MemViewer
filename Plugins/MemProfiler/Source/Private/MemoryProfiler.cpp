@@ -43,7 +43,9 @@ void FMemoryProfiler::Start(const TCHAR* Dir)
 	delete Ver;
 
 
-
+#ifndef ENABLE_RHI_TRACKING
+#define ENABLE_RHI_TRACKING 0
+#endif
 #if ENABLE_RHI_TRACKING
 	GTrackAllocRHITexture = +[](const void* Ptr, uint32 Size, const FString& Name, const FRHITextureCreateDesc& Desc){
 		

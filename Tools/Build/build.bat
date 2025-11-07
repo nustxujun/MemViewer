@@ -74,6 +74,6 @@ if %ERRORLEVEL% NEQ 0 (
 
 
 call deactivate
-rmdir /s /q Tools/env
+rmdir /s /q "./Tools/env"
 
 pause

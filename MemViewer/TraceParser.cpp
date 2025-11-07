@@ -291,6 +291,8 @@ bool TraceData::ParseTraceFile(const std::string& path, TraceData* trace)
 					auto key = read_string();
 					uint32_t value;
 					read(value);
+					//Assert(key.length() != 0, "invalid key");
+					if (key.length() != 0)
 					info.custom_datas.emplace(std::move(key), value);
 				}
 			}

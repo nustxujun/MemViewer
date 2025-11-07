@@ -14,6 +14,8 @@
 
 static void parseAllocsRange(int begin, int end, const std::vector<AllocInfo>& allocs, Calltree::Ptr calltree, std::vector<AllocInfo>& ranged_allocs, Calltree::Ptr& ranged_tree)
 {
+	if (!calltree)
+		return ;
 	auto begin_frame = begin;
 	auto end_frame = end;
 

@@ -119,7 +119,7 @@ void View::AddTask(std::function<void()>&& func)
 	}
 
 
-	isRunningTask();
+	//isRunningTask();
 
 }
 

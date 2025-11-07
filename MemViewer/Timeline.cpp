@@ -156,6 +156,8 @@ void TimelineView::InitializeImpl()
 			size++;
 			for (auto& data : info.custom_datas)
 			{
+				Assert(data.first.length() != 0, "");
+
 				custom_datas[data.first].resize(size);
 				custom_datas[data.first][size - 1] = (data.second / 1024.0f / 1024.0f);
 			}
