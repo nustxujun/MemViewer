@@ -9,7 +9,11 @@
 #include "Platforms/IOS/IOSHook.h"
 #include "Platforms/IOS/IOSInternalAllocator.h"
 #include "Platforms/IOS/IOSMemoryInfo.h"
-
+#elif PLATFORM_ANDROID
+#include "Platforms/Android/AndroidHook.h"
+#include "Platforms/Android/AndroidInternalAllocator.h"
+#include "Platforms/Android/AndroidMemoryInfo.h"
+#include "Platforms/Android/AndroidUnwind.h"
 #endif
 
 

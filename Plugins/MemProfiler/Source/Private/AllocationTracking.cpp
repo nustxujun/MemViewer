@@ -25,6 +25,7 @@
 #elif PLATFORM_ANDROID
 #include <sys/mman.h>
 #include <dlfcn.h>
+#include <link.h>
 #include "Android/AndroidPlatformFile.h"
 #elif PLATFORM_WINDOWS
 #include "Windows/WindowsHWrapper.h"
@@ -92,6 +93,12 @@ struct FInternalMallocScope
 	}
 };
 
+#if PLATFORM_IOS
+#define USING_MAPPED_FILE 1
+#else
+#define USING_MAPPED_FILE 0
+#endif
+
 constexpr int CacheSize = 32;
 template<class T, bool bAutoDrop = true>
 class MappedAlloc
@@ -100,19 +107,11 @@ public:
 	MappedAlloc(const char* path)
 	{
 		PageSize = FPlatformMemory::GetConstants().PageSize * sizeof(T) * CacheSize;
-#if PLATFORM_IOS || PLATFORM_ANDROID
+#if USING_MAPPED_FILE
 		Handle = open(path, O_RDWR | O_CREAT, S_IRWXU);
 		checkf(Handle != -1, TEXT("errno: %d, path: %s"), errno, ANSI_TO_TCHAR(path));
-#elif PLATFORM_WINDOWS
+#else
 		Handle = MakeShareable<FArchive>(IFileManager::Get().CreateFileWriter(ANSI_TO_TCHAR(path), FILEWRITE_AllowRead));
-
-		//FileHandle = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-		//checkf(FileHandle != INVALID_HANDLE_VALUE, TEXT("errno: %d, path %s"), GetLastError(), ANSI_TO_TCHAR(path));
-
-		//LARGE_INTEGER LI;
-		//LI.QuadPart = (NumPages + 1) * PageSize;
-		//ensure(SetFilePointerEx(FileHandle, LI, NULL, FILE_BEGIN) != INVALID_SET_FILE_POINTER);
-		//ensure(SetEndOfFile(FileHandle) != 0);
 #endif
 	}
 
@@ -127,25 +126,19 @@ private:
 
 		if (Begin + n >= End)
 		{
-			//FScopeLock InternalLock(&GetState()->InternalMallocMutex);
-#if !PLATFORM_WINDOWS
-			FInternalMallocScope Scope;
-#endif
-#if PLATFORM_IOS || PLATFORM_ANDROID
+//#if !USING_MAPPED_FILE
+//			FInternalMallocScope Scope;
+//#endif
+#if USING_MAPPED_FILE
 
 			ensure(ftruncate(Handle, (NumPages + 1) * PageSize) == 0);
 			if (bAutoDrop && Buffer)
 			{
-				//				madvise(Buffer, PageSize, MADV_DONTNEED);
 				munmap(Buffer, PageSize);
-//				GetState()->Overhead -= PageSize;
 			}
 			T* Page = (T*)mmap(0, PageSize, PROT_READ | PROT_WRITE, MAP_SHARED, Handle, NumPages * PageSize);
-#elif PLATFORM_WINDOWS
+#else
 			T* Page;
-
-
-
 
 			if (bAutoDrop)
 			{
@@ -159,51 +152,9 @@ private:
 			{
 				Page = (T*)FGenericPlatformInternalAllocator::Malloc(PageSize);
 			}
-
-			//if (Buffer)
-			//{
-			//	if (!bAutoDrop)
-			//	{
-			//		FMemory::Memcpy(Buffer, ShadowBuffer, PageSize);
-			//	}
-
-			//	UnmapViewOfFile(Buffer);
-			//	//GetState()->Overhead -= PageSize;
-			//	CloseHandle(Handle);
-
-
-			//}
-
-
-			//LARGE_INTEGER LI;
-			//LI.QuadPart = (NumPages + 1) * PageSize;
-			//ensure(SetFilePointerEx(FileHandle, LI, NULL, FILE_BEGIN) != INVALID_SET_FILE_POINTER);
-			//if (SetEndOfFile(FileHandle) == 0)
-			//{
-			//	auto Err= GetLastError();
-			//	checkf(false, TEXT("errno: %d"), Err);
-			//}
-			//Handle = CreateFileMappingA(FileHandle, NULL, PAGE_READWRITE, LI.HighPart, LI.LowPart, NULL);
-			//checkf(Handle != INVALID_HANDLE_VALUE && Handle != 0, TEXT("errno: %d"), GetLastError());
-
-			//LI.QuadPart = NumPages * PageSize;
-			//T* Page = (T*)MapViewOfFile(Handle, FILE_MAP_ALL_ACCESS, LI.HighPart, LI.LowPart, PageSize);
-			//checkf(Page, TEXT("errno: %d"), ::GetLastError());
-			//if (!bAutoDrop)
-			//{
-			//	//ShadowBuffer = (T*)malloc(PageSize);
-			//	ShadowBuffer = (T*)FGenericPlatformInternalAllocator::Malloc(PageSize);
-			//	memset(ShadowBuffer, 0, PageSize);
-
-			//}
-#else
-			T* Page = 0;
-			return nullptr;
 #endif
-			//GetState()->bInternalMalloc.SetValue(false);
 
 			check(Page);
-//			GetState()->Overhead += PageSize;
 
 			NumPages++;
 
@@ -223,7 +174,7 @@ public:
 		FScopeLock Lock(&SharedMutex);
 		auto Data = Malloc(Size);
 		FMemory::Memcpy(Data, Elems,  Size * sizeof(T));
-#if PLATFORM_WINDOWS
+#if !USING_MAPPED_FILE
 		Handle->Serialize((uint8*)Elems, Size * sizeof(T));
 #endif
 		return Data;
@@ -231,7 +182,7 @@ public:
 
 	void WriteOnly(const T* Elems, uint32 Size)
 	{
-#if PLATFORM_WINDOWS
+#if !USING_MAPPED_FILE
 		FScopeLock Lock(&SharedMutex);
 		Handle->Serialize((uint8*)Elems, Size * sizeof(T));
 #else
@@ -247,9 +198,9 @@ private:
 	T* End = 0;
 	uint64 PageSize = 0;
 	uint32 NumPages = 0;
-#if PLATFORM_WINDOWS
+#if !USING_MAPPED_FILE
 	TSharedPtr<FArchive> Handle;
-#elif PLATFORM_IOS || PLATFORM_ANDROID
+#else
 	int Handle = 0;
 #endif
 	FCriticalSection SharedMutex;
@@ -397,8 +348,6 @@ FString GetFilePath(const TCHAR* Filename)
 {
 #if PLATFORM_IOS
 	return IFileManager::Get().ConvertToAbsolutePathForExternalAppForWrite(*FPaths::Combine(GetFolderPath(), Filename));
-#elif PLATFORM_ANDROID
-	return IAndroidPlatformFile::GetPlatformPhysical().FileRootPath(*FPaths::Combine(GetFolderPath(), Filename));
 #else
 	return FPaths::Combine(GetFolderPath(), Filename);
 #endif
@@ -470,25 +419,32 @@ void FAllocationTracking::Initialize(const TCHAR* CmdLine, const TCHAR* InDir)
 		TSharedPtr<FArchive> ModuleFile = MakeShareable<FArchive>(FileMgr.CreateFileWriter(*FPaths::Combine(FolderPath, TEXT("modules")), FILEWRITE_AllowRead));
 
 #if PLATFORM_ANDROID
-		Dl_info dlinfo;
-		int Count = 0;
-		if (dladdr((const void*)&FAllocationTracking::Initialize, &dlinfo) != 0)
+		struct ImageInfo
 		{
-			Count = 1;
-			(*ModuleFile) << Count;
+			std::string name;
+			uint64 base;
+			uint32 size;
+
+		};
+		TArray<ImageInfo> ModuleInfos;
+		dl_iterate_phdr(+[](struct dl_phdr_info* Info, size_t /*size*/, void* Data) {
+			auto& ModuleInfos = *static_cast<TArray<ImageInfo>*>(Data);
+			if (Info->dlpi_name)
 			{
-				uint64 BaseAddr = (uint64)dlinfo.dli_fbase;
-				uint32 ImgeSize = 0xffffffff;//dlinfo.dli_size;
-				(*ModuleFile) << BaseAddr;
-				(*ModuleFile) << ImgeSize;
-				int StrLen = FCStringAnsi::Strlen(dlinfo.dli_fname);
-				(*ModuleFile) << StrLen;
-				ModuleFile->Serialize((void*)dlinfo.dli_fname, StrLen);
+				ModuleInfos.Add({Info->dlpi_name, Info->dlpi_addr});
 			}
-		}
-		else
+			return 0;
+			}, & ModuleInfos);
+
+		int Count = ModuleInfos.Num();
+		(*ModuleFile) << Count;
+		for (auto& Module : ModuleInfos)
 		{
-			(*ModuleFile) << Count;
+			(*ModuleFile) << Module.base;
+			(*ModuleFile) << Module.size;
+			int StrLen = Module.name.length();
+			(*ModuleFile) << StrLen;
+			ModuleFile->Serialize((void*)Module.name.c_str(), StrLen);
 		}
 #else
 		auto Count = FPlatformStackWalk::GetProcessModuleCount();
@@ -523,11 +479,27 @@ void FAllocationTracking::Initialize(const TCHAR* CmdLine, const TCHAR* InDir)
 	{
 		FGenericPlatformHook::StartHooking(FAllocationTracking::TrackAllocation, FAllocationTracking::TrackFree);
 	}
+// 	else
+// 	{
+// #if ENABLE_LOW_LEVEL_MEM_TRACKER
+// 		GAllocationEvent = +[](const void* Ptr, int64 Size, ELLMTracker Tracker, ELLMAllocType Type){ 
+// 			//if (Tracker != ELLMTracker::Default)
+// 			//	return;
+// 			FAllocationTracking::TrackAllocation(Ptr, Size,0);
+// 		};
+
+// 		GFreeEvent = +[](const void* Ptr, ELLMTracker Tracker, ELLMAllocType Type) {
+// 			//if (Tracker != ELLMTracker::Default)
+// 			//	return;
+// 			FAllocationTracking::TrackFree(Ptr, 0);
+
+// 		};
+// #endif
+// 	}
 
 	GetState()->bInitialized = true;
 	GetProgramSize();
 };
-
 
 int FAllocationTracking::GetTrackerType()
 {
@@ -574,6 +546,11 @@ int FAllocationTracking::GetCurrentStackId()
 
 #if PLATFORM_WINDOWS 
 	Stack[0] = FastCaptureBackTraceOnWin64(Stack + 1, MAX_DEPTH);
+#elif PLATFORM_ANDROID
+	{
+		FInternalMallocScope Scope;
+		Stack[0] = CaptureStack(Stack + 1, MAX_DEPTH);
+	}
 #else
 	Stack[0] = FPlatformStackWalk::CaptureStackBackTrace(Stack + 1, MAX_DEPTH);
 #endif

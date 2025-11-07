@@ -52,12 +52,14 @@ static auto GetStartCommandLine = [](){
 		
 		UE_LOG(LogCore, Log, TEXT("Commandline is %s"),*Str);
 
+        if (!FParse::Param(*Str, TEXT("memoryprofile")) )
+            return 0;
 			
 		FMemoryProfiler::Initialize(*Str,*GetDir());
 		FUObjectProfiler::Initialize();
 		FLuaMemProfiler::Initialize(*Str, *GetDir());
 		
-		bEnableProfiler = true;
+		bEnableProfiler = true; 
 	}
 	
 
@@ -72,7 +74,7 @@ static auto GetStartCommandLine = []() {
 	if (!bEnableProfiler)
 		return 0;
 
-	auto Path = FPlatformMisc::ProjectDir();
+	auto Path = FPaths::ProjectSavedDir();
 	auto Dir = FPaths::Combine(Path ,TEXT("/MemTrace/")) + FDateTime::Now().ToString(TEXT("%Y_%m_%d-%H_%M_%S"));
 
 	FMemoryProfiler::Initialize(*Str, *Dir);
@@ -80,7 +82,50 @@ static auto GetStartCommandLine = []() {
 	FLuaMemProfiler::Initialize(*Str, *Dir);
 	return 0;
 }();
+#elif PLATFORM_ANDROID
+#include <string>
+#include <sys/mman.h>
+#include <fcntl.h>
+static auto GetStartCommandLine = []() {
+		FString Path = FPaths::Combine(FPaths::ProjectPersistentDownloadDir(), FString("UnrealGame") , (!FApp::IsProjectNameEmpty() ? FApp::GetProjectName() : FPlatformProcess::ExecutableName()) );
+		Path = IAndroidPlatformFile::GetPlatformPhysical().FileRootPath(*Path);
 
+		auto file = std::fstream(TCHAR_TO_UTF8(*FPaths::Combine(Path,CmdLineFile())), std::ios::in);
+		FString Cmd;
+
+		auto DateTime = FDateTime::Now().ToString(TEXT("%Y_%m_%d-%H_%M_%S"));
+		GetDir() = FPaths::Combine(Path, TEXT("MemTrace"), DateTime);
+		if (file)
+		{
+
+			std::string content;
+
+			while (!file.eof() && file.good())
+			{
+				std::string line;
+				file >> line;
+				content += line + " ";
+			}
+
+
+			FString Str = ANSI_TO_TCHAR(content.c_str());
+
+			UE_LOG(LogCore, Log, TEXT("Commandline is %s"), *Str);
+			if (!FParse::Param(*Str, TEXT("memoryprofile")))
+				return 0;
+
+			FMemoryProfiler::Initialize(*Str, *GetDir());
+			FUObjectProfiler::Initialize();
+			FLuaMemProfiler::Initialize(*Str, *GetDir());
+
+			bEnableProfiler = true;
+		}
+		else
+		{
+		}
+
+		return 0;
+	}();
 #endif
 
 
