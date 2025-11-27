@@ -10,8 +10,6 @@
 #include <format>
 #include <mutex>
 #include "TraceInstance.h"
-
-#pragma optimize("",off)
 CustomData::Ptr CustomData::createCustomData(int type)
 {
 	return std::make_shared<CustomData>();
@@ -240,6 +238,10 @@ bool TraceData::ParseTraceFile(const std::string& path, TraceData* trace)
 
 		ai.node = {calltree,node_map[index]};
 
+
+		//Assert(ai.size < uint32_t(1 << 31), "invalid trace data");
+
+		if (ai.size < 1024 * 1024 * 1024)
 		allocs.push_back(ai);
 	}
 

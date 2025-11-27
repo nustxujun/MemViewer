@@ -5,10 +5,69 @@
 #include "TraceInstance.h"
 #include "Timeline.h"
 #include "Concurrency.h"
+#include "resource.h"
 
 #include <vector>
 #include <format>
 #include <random>
+#include <atomic>
+
+auto get_colors = [](int count) {
+	auto hslToRgb = [](float h, float s, float l) ->std::tuple<int, int, int>
+		{
+			float c = (1 - std::fabs(2 * l - 1)) * s;
+			float x = c * (1 - std::fabs(fmod(h / 60.0, 2) - 1));
+			float m = l - c / 2;
+
+			float r, g, b;
+			if (h >= 0 && h < 60) {
+				r = c; g = x; b = 0;
+			}
+			else if (h >= 60 && h < 120) {
+				r = x; g = c; b = 0;
+			}
+			else if (h >= 120 && h < 180) {
+				r = 0; g = c; b = x;
+			}
+			else if (h >= 180 && h < 240) {
+				r = 0; g = x; b = c;
+			}
+			else if (h >= 240 && h < 300) {
+				r = x; g = 0; b = c;
+			}
+			else {
+				r = c; g = 0; b = x;
+			}
+
+			int R = static_cast<int>((r + m) * 255);
+			int G = static_cast<int>((g + m) * 255);
+			int B = static_cast<int>((b + m) * 255);
+			return { R, G, B };
+		};
+
+	const int numColors = count;
+	int color_index = 0;
+	auto get_color = [&]() {
+
+		float hueStep = 360.0 / numColors;
+		float saturation = 0.1 + color_index % 3 * 0.2;
+		float lightness = 0.5;
+
+		float hue = color_index++ * hueStep;
+		auto rgb = hslToRgb(hue, saturation, lightness);
+		return IM_COL32(std::get<0>(rgb), std::get<1>(rgb), std::get<2>(rgb), 255);
+		};
+
+	std::vector<uint32_t> colors;
+	colors.resize(count);
+	for (int i = 0; i < count; ++i)
+	{
+		colors[i] = get_color();
+	}
+
+	return colors;
+};
+#pragma optimize("",off)
 void TimelineView::InitializeImpl()
 {
 	frames.clear();
@@ -24,12 +83,10 @@ void TimelineView::InitializeImpl()
 
 
 
-
-
-
-
-
 	scrolling = { 0,0 };
+
+
+
 
 
 	{
@@ -39,34 +96,44 @@ void TimelineView::InitializeImpl()
 		base_frame = range.begin;
 		size_vec.resize(count);
 
+		auto& allocs = trace->getTotalAllocs();
+		auto alloc_count = allocs.size();
+		auto thread_count = std::thread::hardware_concurrency() ;
 
-		for (auto& alloc : trace->getTotalAllocs())
-		{
-			auto end = std::min<int>(alloc.end, range.end);
+		std::unique_ptr<std::atomic_int64_t[]> datas = std::move(std::make_unique<std::atomic_int64_t[]>(count));
+		ParallelTask(5000, alloc_count, [&](uint64_t begin, uint64_t end){
 
-			Assert(alloc.size < 1024 * 1024 * 1024, "invalid trace data");
-			EXIT_IF_STOPED()
+			for (auto i = begin; i < end; ++i)
+			{
+				auto& alloc = allocs[i];
+				auto end_time = std::min<int>(alloc.end, range.end);
 
-				for (int i = alloc.start; i ALLOC_END_CMP(<= , < ) end; ++i)
+				EXIT_IF_STOPED()
+
+				for (int i = alloc.start; i ALLOC_END_CMP(<= , < ) end_time; ++i)
 				{
-					size_vec[i - range.begin] += alloc.size;
+					//size_vec[i - range.begin] += alloc.size;
+					datas[i - range.begin].fetch_add(alloc.size,std::memory_order_relaxed);
 				}
-		}
+			}
+		
+		});
+
 
 		const float inv = 1.0f / 1024.0f / 1024.0f;
 		std::vector<float> frames;
 		frames.reserve(count);
 		max_size = 0;
-		for (auto size : size_vec)
+		for (int i = 0; i < count; ++i)
 		{
-			auto total_size = (size)*inv;
+			auto total_size = datas[i]*inv;
 			frames.push_back(total_size);
 		}
 
 		TimelineComp::TimelineData data;
 		data.datas = frames;
 		data.datas.resize(count);
-		data.color = IM_COL32(255, 200, 0, 200);
+		data.color = IM_COL32(255, 200, 0, 255);
 		data.type = TimelineComp::TimelineData::Bar;
 		data.name = "trk";
 		component.setDatas(0, std::move(data));
@@ -100,7 +167,6 @@ void TimelineView::InitializeImpl()
 		{
 			auto end = std::min<int>(alloc.end, range.end);
 
-			Assert(alloc.size < 1024 * 1024 * 1024, "invalid trace data");
 			EXIT_IF_STOPED()
 
 				for (int i = alloc.start; i ALLOC_END_CMP(<= , < ) end; ++i)
@@ -144,7 +210,7 @@ void TimelineView::InitializeImpl()
 	//    component.setDatas(2, std::move(data));
 	//}
 
-	int cur_idx = 3;
+	int cur_idx = component.getNumDatas();
 
 	{
 		std::map<std::string, std::vector<float>> custom_datas;
@@ -163,57 +229,16 @@ void TimelineView::InitializeImpl()
 			}
 		}
 
-		const int numColors = custom_datas.size();
-		int index = 0;
+		//const int numColors = custom_datas.size();
 
-		auto hslToRgb = [](float h, float s, float l) ->std::tuple<int, int, int>
-			{
-				float c = (1 - std::fabs(2 * l - 1)) * s;
-				float x = c * (1 - std::fabs(fmod(h / 60.0, 2) - 1));
-				float m = l - c / 2;
-
-				float r, g, b;
-				if (h >= 0 && h < 60) {
-					r = c; g = x; b = 0;
-				}
-				else if (h >= 60 && h < 120) {
-					r = x; g = c; b = 0;
-				}
-				else if (h >= 120 && h < 180) {
-					r = 0; g = c; b = x;
-				}
-				else if (h >= 180 && h < 240) {
-					r = 0; g = x; b = c;
-				}
-				else if (h >= 240 && h < 300) {
-					r = x; g = 0; b = c;
-				}
-				else {
-					r = c; g = 0; b = x;
-				}
-
-				int R = static_cast<int>((r + m) * 255);
-				int G = static_cast<int>((g + m) * 255);
-				int B = static_cast<int>((b + m) * 255);
-				return { R, G, B };
-			};
-
-		auto get_color = [&]() {
-			float hueStep = 360.0 / numColors;
-			float saturation = 0.1 + index % 3 * 0.2;
-			float lightness = 0.5;
-
-			float hue = index++ * hueStep;
-			auto rgb = hslToRgb(hue, saturation, lightness);
-			return IM_COL32(std::get<0>(rgb), std::get<1>(rgb), std::get<2>(rgb), 255);
-			};
-
+		auto colors = get_colors(custom_datas.size());
+		auto col_idx = 0;
 		for (auto& info : custom_datas)
 		{
 			Assert(info.first.length() != 0, "");
 
 			TimelineComp::TimelineData data;
-			data.color = get_color();
+			data.color = colors[col_idx++];
 			data.type = TimelineComp::TimelineData::Bar;
 			data.name = info.first;
 			data.datas = std::move(info.second);
@@ -227,6 +252,117 @@ void TimelineView::InitializeImpl()
 
 
 
+}
+
+void TimelineView::CalCategories()
+{
+	auto trace_basic = GetTrace();
+	auto trace = (TraceInstance*)trace_basic.get();
+	{
+		auto range = trace->getTraceRange();
+		auto count = range.count() + 1;
+		base_frame = range.begin;
+
+		CategoryParser Parser;
+		auto cates = Parser(get_or_create_default_file(IDR_CATEGORY_CONFIG_INI, "category_config.ini"));
+
+
+		//std::vector<std::vector<std::shared_ptr<std::atomic_int64_t>>> cate_datas ;
+		std::vector<std::unique_ptr<std::atomic_int64_t[]>> cate_datas;
+		std::vector<std::vector<float>> categories;
+		categories.clear();
+		cate_datas.resize(cates.size());
+		categories.resize(cates.size());
+		for (int i = 0; i < cate_datas.size(); ++i)
+		{
+			cate_datas[i] = std::move(std::make_unique<std::atomic_int64_t[]>(count));
+			for (int j = 0; j < count; ++j)
+			{
+				cate_datas[i][j].store(0, std::memory_order_relaxed);
+			}
+			categories[i].resize(count);
+		}
+
+
+		struct InternalAllcInfo
+		{
+			uint64_t size = 0;
+			uint32_t count = 0;
+			int category;
+			uint32_t matched_node_index;
+		};
+
+		auto& allocs = trace->getTotalAllocs();
+		auto alloc_count = allocs.size();
+
+		std::mutex mutex;
+
+		ParallelTask(5000, alloc_count, [&](uint64_t begin, uint64_t end) {
+			auto MatchCategory = [](auto& str, auto& cats)->uint32_t
+				{
+					uint32_t cat_idx = 0;
+					for (auto& cat : cats)
+					{
+						for (auto& filter : cat.keys)
+						{
+							if (str.find(filter) == std::string::npos)
+								continue;
+							return cat_idx;
+						}
+						cat_idx++;
+					}
+					return -1;
+				};
+
+			for (auto i = begin; i < end; ++i)
+			{
+				auto& info = allocs[i];
+				auto noderef = info.node;
+				int cat_idx = -1;
+
+
+				auto cur_node = noderef;
+				while (cur_node)
+				{
+					EXIT_IF_STOPED();
+
+					cat_idx = MatchCategory(cur_node->name, cates);
+					if (cat_idx != -1)
+					{
+						break;
+					}
+					cur_node = cur_node->parent;
+				}
+				if (cat_idx == -1)
+				{
+					continue;
+				}
+
+				for (int j = info.start; j < info.end; ++j)
+					cate_datas[cat_idx][j - range.begin].fetch_add(info.size, std::memory_order_relaxed);
+			}
+			});
+
+		auto colors = get_colors(categories.size());
+		for (int i = 0; i < categories.size(); ++i)
+		{
+			for (int j = 0; j < count; ++j)
+			{
+				categories[i][j] = cate_datas[i][j].load(std::memory_order_relaxed) / 1024.0f / 1024.0f;
+			}
+
+			TimelineComp::TimelineData data;
+			data.color = colors[i];
+			data.type = TimelineComp::TimelineData::Line;
+			data.name = cates[i].name + "_category";
+			data.datas = std::move(categories[i]);
+			data.visible = true;
+			data.stacking = false;
+			component.setDatas(component.getNumDatas(), std::move(data));
+		}
+
+
+	}
 }
 
 void TimelineView::ShowImpl()
@@ -251,12 +387,14 @@ void TimelineView::ShowImpl()
 	for (auto& cp : chkpnts)
 	{
 		cp_idx++;
+		ImGui::PushID(cp_idx);
 		if (ImGui::Button(cp.text.c_str()))
 		{
 			select_range_cb(1, cp.frameid);
 			component.dragging_start = 0;
 			component.dragging_end = cp.frameid - base_frame;
 		}
+		ImGui::PopID();
 		if (cp_idx < cp_count)
 		{
 			ImGui::SameLine();
@@ -265,7 +403,15 @@ void TimelineView::ShowImpl()
 	ImGui::EndChild();
 
 	ImGui::BeginChild("list", { 200,0 }, ImGuiChildFlags_ResizeX);
+	filter.Show();
+	if (!is_calcategories && ImGui::Button("show categories"))
+	{
+		is_calcategories = true;
+		CalCategories();
 
+		ImGui::EndChild();
+		return;
+	}
 	if (ImGui::BeginTable("list", 2))
 	{
 		struct DataTree
@@ -274,18 +420,23 @@ void TimelineView::ShowImpl()
 			std::vector<TimelineComp::TimelineData*> datas;
 		};
 
-
 		std::vector<DataTree> tree;
 		[&]() {
-			DataTree base, mlc, gpu, otr, seg;
+			DataTree base, mlc, gpu, otr, seg, cat;
 			base.name = "base";
 			mlc.name = "malloc";
 			gpu.name = "gpu";
 			seg.name = "segment";
 			otr.name = "other";
+			cat.name = "category";
+
+			std::string filter_str = to_lower(filter.GetString());
 
 			for (auto& data : component.datas)
 			{
+				if (filter_str.length() != 0 && to_lower(data.name).find(filter_str) == std::string::npos)
+					continue;
+
 				if (data.name == "trk" || data.name == "phy" || data.name == "lua")
 				{
 					base.datas.push_back(&data);
@@ -302,14 +453,18 @@ void TimelineView::ShowImpl()
 				{
 					seg.datas.push_back(&data);
 				}
+				else if (data.name.find("_category") != std::string::npos)
+				{
+					cat.datas.push_back(&data);
+				}
 				else
 				{
 					otr.datas.push_back(&data);
 				}
 			}
 
-			tree = { base, mlc, gpu, seg, otr };
-			}();
+			tree = { base,cat, mlc, gpu, seg, otr };
+		}();
 
 		for (auto& d : tree)
 		{
@@ -351,9 +506,12 @@ void TimelineView::ShowImpl()
 					ImGui::Selectable(i->name.c_str(), &i->visible, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap);
 					ImGui::PopStyleColor();
 					ImGui::TableSetColumnIndex(1);
-					ImGui::PushID(i->name.c_str() + 1);
-					ImGui::Checkbox("stacking", &i->stacking);
-					ImGui::PopID();
+					if (i->type == TimelineComp::TimelineData::Bar)
+					{
+						ImGui::PushID(i->name.c_str() + 1);
+						ImGui::Checkbox("stacking", &i->stacking);
+						ImGui::PopID();
+					}
 				}
 				ImGui::TreePop();
 			}

@@ -17,6 +17,7 @@
 
 #undef min
 #undef max
+
 uint32_t CategoryView::GetUntagged(const std::vector<Category>& cats)
 {
 	uint32_t cat_idx = 0;
@@ -80,6 +81,8 @@ uint32_t CategoryView::findCategory()
 			NodeRef matched_node;
 			NodeRef noderef = {calltree, (int)i};
 
+			if (node->basic_size == 0)
+				continue;
 
 			auto cur_node = node;
 			while (cur_node)
@@ -100,8 +103,7 @@ uint32_t CategoryView::findCategory()
 				cat_idx = untaggedid;
 			}
 
-			if (node->basic_size == 0)
-				continue;
+
 			std::lock_guard lock(mutex);
 			categories[cat_idx].total_size += node->basic_size;
 			alloc_infos[categories[cat_idx].index].push_back({ noderef, matched_node, node->basic_count, node->basic_size});

@@ -229,4 +229,5 @@ struct TimelineComp
 
 	void Show(float width = 0, float height = 0, OnEvnet&& evn = {});
 	void setDatas(int index, TimelineData datas);
+	int getNumDatas(){return datas.size(); }
 };

@@ -139,7 +139,7 @@ struct AllocInfo
 {
 	NodeRef node;
 
-	int32_t size;
+	uint32_t size;
 	uint32_t start;
 	uint32_t end;
 

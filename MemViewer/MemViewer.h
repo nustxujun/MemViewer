@@ -21,25 +21,6 @@ extern void InitializeMainWindow(void* hwnd);
 extern void ShowMainWindow();
 extern int GetMode();
 
-extern void InitializeTimeline();
-extern void ShowTimeline();
-extern void SetCustomData(std::vector<float> datas);
-extern void SetCustomData2(std::vector<float> datas);
-
-//extern void UpdateTreeView();
-//extern void ShowTreeView();
-//extern void FilterByString(const char* filters, bool ignore_case);
-//
-//
-//extern void ShowFilter();
-//
-//extern void UpdateCategory();
-//extern void InitializeCategory();
-//extern void ShowCategory();
-
-
-extern bool ShowFileBrowser(std::string& path);
-
 
 
 

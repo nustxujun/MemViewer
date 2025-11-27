@@ -15,10 +15,11 @@ public:
 
 	void notifySelectedRange(std::function<void(uint32_t, uint32_t)>&& f){ select_range_cb = std::move(f); }
 	void SetCustomData(std::vector<float> datas);
-
+	void CalCategories();
 private:
 
 	TimelineComp component;
+	FilterComp filter;
 
 	ImVec2 scrolling = {0.0f, 0.0f};
 	std::vector<float> frames;
@@ -39,5 +40,5 @@ private:
 	int freq = 1;
 	bool is_scrolling = false;
 	bool is_dragging = false;
-
+	bool is_calcategories = false;
 };

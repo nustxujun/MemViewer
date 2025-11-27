@@ -5,9 +5,6 @@
 #include <fstream>
 #include <regex>
 
-#pragma optimize("", off)
-
-
 bool FilterComp::Show(int flag) 
 {
 	ImGui::PushID(this);
@@ -605,6 +602,7 @@ void TimelineComp::Show(float width, float height, OnEvnet&& evn)
 	// constants
 	const float grid_width = 8;
 	const float frame_width = grid_width / freq;
+	const int num_skip_frame = std::max<int>(1.0f / frame_width, 1);
 	const float local_begin_x = scrolling.x + start_pos.x;
 	const float begin_x = local_begin_x - fmodf(local_begin_x, frame_width);
 	const auto frame_scaling = (size.y * 0.8f) / DynamicMaxHeight;//MaxHight;
@@ -635,7 +633,7 @@ void TimelineComp::Show(float width, float height, OnEvnet&& evn)
 		for (auto& data : ordered_datas)
 		{
 			std::vector<ImVec2> line_points;
-			for (auto frame = 0; frame < Count; ++frame)
+			for (auto frame = 0; frame < Count; frame += num_skip_frame)
 			{
 				auto x = begin_x + frame * frame_width;
 				if (x < start_pos.x)
@@ -644,9 +642,11 @@ void TimelineComp::Show(float width, float height, OnEvnet&& evn)
 				if (x > end_pos.x)
 					break;
 
-				TempMaxHeight = std::max<float>(TempMaxHeight, data->datas[frame]);
+				float single_data = 0;
+				single_data = data->datas[frame];
+				TempMaxHeight = std::max<float>(TempMaxHeight, single_data);
 
-				auto rect_min_y = end_pos.y - data->datas[frame] * frame_scaling;
+				auto rect_min_y = end_pos.y - single_data * frame_scaling;
 
 
 				if (data->type == TimelineData::Bar)

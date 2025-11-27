@@ -6,6 +6,7 @@
 #include "CategoryView.h"
 #include "RHIView.h"
 #include "ObjectView.h"
+#include "FrequenceView.h"
 #include <fstream>
 #include <sstream>
 
@@ -278,8 +279,8 @@ TraceView::Trace::Trace(TraceView* v):trace_view(v)
 		std::shared_ptr<View>(new CallstackView("CallTree")),
 		std::shared_ptr<View>(new CategoryView("Category", tl)),
 		std::shared_ptr<View>(new RHIView("RHI")),
-		std::shared_ptr<View>(new ObjectView("UObject"))
-
+		std::shared_ptr<View>(new ObjectView("UObject")),
+		std::shared_ptr<View>(new FrequenceView("Freq")),
 	};
 
 	standalones.resize(views.size());

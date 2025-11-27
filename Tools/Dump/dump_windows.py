@@ -176,7 +176,7 @@ def main():
             
             output_name = f"{dir}_master_0_{VC}_{OS}_{computer_name}{tag_name}.memtrace"
             output_path = os.path.join(output_dir, output_name)
-            parsing_cmd = f'{os.path.join(workspace, "MemoryTraceParser")} "{trace_dir}" "{symbols_path}" -o="{output_path}" -e={exec_name}'
+            parsing_cmd = f'{os.path.join(workspace, "MemoryTraceParser")} "{trace_dir}" "{symbols_path}" -o="{output_path}" -e={exec_name} -q' 
             print(parsing_cmd)
             os.system(parsing_cmd)
 
