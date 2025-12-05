@@ -17,17 +17,134 @@
 #include <string>
 #include <list>
 #include <ranges>
+#include <queue>
 #include<sstream>
-
+#include <execution>
+#include <memory_resource>
 #include "MemoryTraceParser.h"
 #include "SymbolParser.h"
-
 #define LATEST_VERSION 7
 #define VERSION LATEST_VERSION
-
 #define VER_GRT_EQ(x) (VERSION >= x)
 
 #define REMOVE_ONE_FRAME_ALLOC 1 // remove allocation infos which has only one frame lifecycle
+static std::vector<std::thread> thread_pool;
+static std::list<std::function<void()>> tasks;
+static std::mutex task_mutex;
+class ThreadPool
+{
+    bool is_running = true;
+public:
+    struct TaskHandle
+    {
+        friend class ThreadPool;
+        enum
+        {
+            WAITTING,
+            RUNNING,
+            DONE,
+        };
+        std::shared_ptr<std::atomic_int> state; 
+
+        void wait()
+        {
+            while (*state != DONE)
+            {
+                ::_sleep(0);
+            }
+        }
+
+        TaskHandle()
+        {
+            state = std::make_shared<std::atomic_int>(WAITTING);
+        }
+        private:
+        void begin()
+        {
+            state->store(RUNNING);
+        }
+
+        void done()
+        {
+            state->store(DONE);
+        }
+    };
+
+
+    static TaskHandle PushTask(std::function<void()>&& task)
+    {
+        constexpr int limit = 1'000'000;
+        std::unique_lock<std::mutex> lock(task_mutex);
+        while (tasks.size() >= limit)
+        {
+            lock.unlock();
+            ::_sleep(0);
+            lock.lock();
+        }
+        TaskHandle handle;
+        tasks.emplace_back([task = std::move(task), handle]()mutable {
+            handle.begin();
+            task();
+            handle.done();
+        });
+        return handle;
+    }
+    ThreadPool()
+    {
+        for (int i = 0; i < std::thread::hardware_concurrency(); ++i)
+        {
+            thread_pool.emplace_back([this](){
+             
+                while(is_running)
+                {
+                    std::unique_lock<std::mutex> lock(task_mutex);
+
+                    if (tasks.empty())
+                    {
+                        lock.unlock();
+                        ::_sleep(0);
+                        lock.lock();
+                    }
+                    else
+                    {
+                        std::function<void()> task = std::move(tasks.front());
+                        tasks.pop_front();
+                        lock.unlock();
+                        task();
+                    }
+                }
+
+
+            });
+        }
+    }
+    ~ThreadPool()
+    {
+        is_running = false;
+        for (auto& t : thread_pool)
+        {
+            t.join();
+        }
+    }
+};
+
+static void ParallelFor(uint64_t total,uint64_t stride, std::function<void(uint64_t, uint64_t)>&& task)
+{
+    std::vector<ThreadPool::TaskHandle> handles;
+    for (uint64_t i = 0; i < total; i += stride)
+    {
+        auto begin = i;
+        auto end = std::min(i + stride, total);
+        handles.push_back(ThreadPool::PushTask([task, begin, end]() {
+            task(begin, end);
+        }));
+    }
+
+    for (auto& handle : handles)
+    {
+        handle.wait();
+    }
+}
 
 struct TraceFiles
 {
@@ -72,7 +189,14 @@ struct AllocInfo
 	uint32_t trace;
 	uint32_t start;
 	uint32_t end;
-    
+    friend bool operator <(const AllocInfo& a, const AllocInfo& b)
+    {
+        if (a.ptr != b.ptr)
+            return a.ptr < b.ptr;
+        if (a.start != b.start)
+            return a.start < b.start;
+        return a.end < b.end;
+    }
 };
 
 struct Checkpoint
@@ -86,6 +210,13 @@ struct DeallocInfo
     uint64_t ptr;
     uint32_t end;
     uint32_t padding;
+
+    friend bool operator <(const DeallocInfo& a, const DeallocInfo& b)
+    {
+        if (a.ptr != b.ptr)
+            return a.ptr < b.ptr;
+        return a.end < b.end;
+    }
 };
 
 
@@ -464,7 +595,8 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
     std::fstream custom_file = std::fstream(file_names.custom_file_path, std::ios::in | std::ios::binary);
 #endif
 #if VER_GRT_EQ(2)
-    std::map<uint64_t,std::list<uint32_t>> dealloc_infos;
+    std::vector<DeallocInfo> dealloc_infos;
+    dealloc_infos.reserve(100'000'000);
     std::vector<ObjectInfo> object_infos;
     std::vector<RhiInfo> rhi_infos;
     std::vector<ObjectClassInfo> obj_class_infos;
@@ -474,16 +606,16 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
             DeallocInfo info;
             dealloc_file.read((char*)& info, sizeof(info));
 
-            if (dealloc_file.bad())
+            if (!dealloc_file.good())
                 break ;
             if (info.ptr == 0)
                 continue;
             
 //            dealloc_file.push_back(info);
-            dealloc_infos[info.ptr].push_back(info.end);
-            
-
+            dealloc_infos.push_back(info);
         }
+        //dealloc_infos.shrink_to_fit();
+        std::sort(std::execution::par, dealloc_infos.begin(), dealloc_infos.end());
         
         return ;
     });
@@ -884,19 +1016,24 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
 #endif
 
 	std::vector<AllocInfo> alloc_infos;
+    alloc_infos.reserve(100'000'000);
 	auto alloc_fut = async_run([&](){
+        uint32_t idx = 0;
         while (!alloc_file.eof() && alloc_file.good())
         {
             AllocInfo info;
             alloc_file.read((char*)& info, sizeof(info));
 
-            if (alloc_file.bad())
-                return ;
+            if (!alloc_file.good())
+                break ;
             if (info.size == 0)
                 continue;
-
+            info.end = idx++;
             alloc_infos.push_back(info);
         }
+        //alloc_infos.shrink_to_fit();
+        std::sort(std::execution::par, alloc_infos.begin(), alloc_infos.end());
+
         return ;
     });
 
@@ -1060,20 +1197,12 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
 #endif
     
 
-#if VER_GRT_EQ(2)
 
 
-    dealloc_fut.Sync();
-#endif
-    
-    alloc_fut.Sync();
     stack_fut.Sync();
     
-    
-    timer.end();
-    Log("get {0} allocations", alloc_infos.size());
     Log("get {0} stacks", stack_map.size());
-    timer.begin("parse symbols");
+    timer.then("parse symbols");
     
 //    Assert(alloc_infos.size() > 0, "can not get any allocation infos.");
     
@@ -1141,11 +1270,114 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
             cur = unknown;
         }
         node_map.push_back(cur);
- 
     }
 
+    uint32_t num_frames = 0;
+    uint32_t num_allocs;
+    std::vector<ThreadPool::TaskHandle> handles;
+    auto num_total_allocs = alloc_infos.size();
 
-    timer.then("output file");
+
+    auto process_alloc_fut = async_run([&]()
+    {
+        dealloc_fut.Sync();
+
+        alloc_fut.Sync();
+
+        
+        auto stride = std::max<uint64_t>(1'000'000, num_total_allocs / std::thread::hardware_concurrency() / 8);
+        std::mutex mutex;
+
+        for (uint64_t i = 0; i < num_total_allocs;)
+        {
+            auto begin = i;
+            auto end = std::min(num_total_allocs, i + stride);
+
+            while (end + 1 < num_total_allocs)
+            {
+                if (alloc_infos[end].ptr == alloc_infos[end + 1].ptr)
+                    end++;
+                else
+                    break;
+            }
+
+            i += end - begin;
+
+            auto handle = ThreadPool::PushTask([&, begin, end]() {
+                auto search_begin = dealloc_infos.begin();
+                auto search_end = dealloc_infos.end();
+                for (auto i = begin; i < end; )
+                {
+                    auto& info = alloc_infos[i];
+     
+                    auto pos = std::lower_bound(search_begin, search_end, info.ptr, [](auto& a, auto b) {
+                        return a.ptr < b;
+                    });
+
+                    if (pos != search_end && pos->ptr == info.ptr)
+                    {
+                        uint64_t j = i;
+                        for (; j < end && pos != search_end && pos->ptr == info.ptr; )
+                        {
+                            auto& cur = alloc_infos[j];
+                            if (cur.ptr != info.ptr)
+                                break;
+         
+                            if (pos->end >= cur.start)
+                            {
+                                cur.end = pos->end;
+                                j++;
+                            }
+                            pos++;
+                        }
+
+                        i = j;
+
+                    }
+                    else
+                    {
+                        auto next_idx = i ;
+                        for (auto j = next_idx; j < end; ++j)
+                        {
+                            auto& next = alloc_infos[j];
+ 
+                            if (next.ptr == info.ptr)
+                            {
+                                next.end = 0;
+                                next_idx++;
+                            }
+                            else
+                                break;
+                        }
+
+
+                        i = next_idx;
+                    }
+
+                    search_begin = pos;
+                }
+
+            });
+
+            handles.push_back(handle);
+        }
+
+        for (auto& handle : handles)
+        {
+            handle.wait();
+        }
+
+        dealloc_infos.clear();
+        dealloc_infos.shrink_to_fit();
+
+        std::sort(std::execution::par, alloc_infos.begin(), alloc_infos.end(), [](auto& a, auto& b) {
+            return a.start < b.start;
+        });
+
+    });
+
+
+    timer.then("record stack");
     std::fstream output_file(output_dir, std::ios::out | std::ios::binary);
     auto write = [&](const auto& val){
         output_file.write((const char*)&val, sizeof(val));
@@ -1190,81 +1422,90 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
     Log("Get {} rhi infos", rhi_infos.size());
 #endif
     
-    uint32_t num_frames = 0;
-    uint32_t duplicated_ptr = 0;
-    uint32_t num_allocs = 0;
-    for (auto& info : alloc_infos)
-    {
- 
-        uint32_t node_index = 0;
-        if (info.trace < node_map.size() )
-            node_index = node_map[info.trace]->index;
-        else
-        {
-            static int count = 0;
-            if (count++ < 10)
-                Log("failed to find stack by trace id {0}", info.trace);
-        }
-#if VER_GRT_EQ(2)
-        {
-            //        dealloc_infos.erase(info.ptr);
-            auto ret = dealloc_infos.find(info.ptr);
-            if (ret != dealloc_infos.end() && ret->second.size() > 0)
-            {
-                uint32_t end_frame  = 0 ;
-                do
-                {
-                    end_frame = *ret->second.begin();
-                    ret->second.pop_front();
-                }while (end_frame < info.start && ret->second.size() > 0);
-                
-                if (end_frame >= info.start)
-                    info.end = end_frame;
-                
-            }
-            else{
-                info.end = 0;
-            }
-            
-        }
-#endif
-#if REMOVE_ONE_FRAME_ALLOC
-        if (info.start != info.end)
-#endif
-            num_allocs++;
-        
-//        write(info.size);
-//        write(node_index);
-//        write(info.start);
-//        write(info.end);
-        info.trace = node_index;
 
-        
-        num_frames = std::max(num_frames, info.start);
-        num_frames = std::max(num_frames, info.end);
-    }
-    
-    
-    write(num_allocs);
-    
-    for (auto& info : alloc_infos)
-    {
-#if REMOVE_ONE_FRAME_ALLOC
-        if (info.start != info.end)
-#endif
-        {
-            write(info.size);
-            write(info.trace);
-            write(info.start);
-            write(info.end);
-        }
-    }
-
+    timer.then("process alloc infos");
+    process_alloc_fut.Sync();
+    Log("get {0} allocations", alloc_infos.size());
     Log("the max frame in allocations is {0}", num_frames);
-#if VER_GRT_EQ(2)
-    Log("the discard realloc info {0}", dealloc_infos.size());
-#endif
+    timer.then("record alloc infos");
+
     
+    
+    {
+        num_allocs = 0;
+        for (auto& info : alloc_infos)
+        {
+#if REMOVE_ONE_FRAME_ALLOC
+            if (info.start != info.end)
+#endif
+            {
+                num_allocs++;
+            }
+        }
+
+        write(num_allocs);
+
+
+        const auto count = 1024;
+        struct OutputAllocInfo
+        {
+            uint32_t size;
+            uint32_t trace;
+            uint32_t start;
+            uint32_t end;
+
+            OutputAllocInfo(const AllocInfo& info)
+            {
+                size = info.size;
+                trace = info.trace;
+                start = info.start;
+                end = info.end;
+            }
+        };
+        std::vector<OutputAllocInfo> temp;
+        temp.reserve(count);
+        uint64_t check_num = 0;
+        for (auto& info : alloc_infos)
+        {
+    #if REMOVE_ONE_FRAME_ALLOC
+            if (info.start != info.end)
+    #endif
+            {
+                check_num++;
+
+                // mapping node
+                if (info.trace < node_map.size())
+                {
+                    info.trace = node_map[info.trace]->index;
+                }
+                else
+                {
+                    info.trace = 0;
+                }
+
+                temp.push_back(info);
+
+                if (temp.size() == count)
+                {
+                    output_file.write((char*)temp.data(), temp.size() * sizeof(OutputAllocInfo));
+                    temp.clear();
+                }
+                //write(info.size);
+                //write(info.trace);
+                //write(info.start);
+                //write(info.end);
+            }
+        }
+
+        output_file.write((char*)temp.data(), temp.size() * sizeof(OutputAllocInfo));
+
+
+
+        Assert(check_num == num_allocs,"record num is incorrect, count {}, record {}", num_allocs, check_num);
+    }
+
+    
+    timer.then("record others");
 
     
     const int num_snapshots = checkpoints.size();
@@ -1523,6 +1764,8 @@ int main(int num, char** args)
         skip_compression = true;
         output_dir = "trace.memtrace";
     }
+
+    ThreadPool tp;
 
 	auto trace_files = findTraceFile();
 	parse(trace_files, output_dir);

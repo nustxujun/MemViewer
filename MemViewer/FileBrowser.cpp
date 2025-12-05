@@ -106,6 +106,17 @@ void FileBrowserView::ShowFileBrowser(std::function<void(std::string, int)>&& ca
 
 	static int selected_type = 0;
 
+	{
+		static char file_path[1024] = { 0 };
+		if (ImGui::Button("Open File"))
+		{
+			if (std::filesystem::exists(file_path))
+				callback(file_path, 0);
+		}
+		ImGui::SameLine();
+		ImGui::InputText("##path", file_path, 1024);
+	}
+
 
 	if (ImGui::Button("refresh"))
 	{

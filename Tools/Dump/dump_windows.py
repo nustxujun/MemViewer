@@ -120,34 +120,42 @@ def main():
 
 
     # find executable path
-    for dir in os.listdir(game_path):
-        path = os.path.join(game_path, dir)
-        if dir == "Engine" or os.path.isfile(path):
-            continue
-        
-        bin_path = os.path.join(path, "Binaries")
-        if not os.path.exists(bin_path):
-            continue
 
-        game_path = path
-        trace_path = os.path.join(game_path, "MemTrace")
-        if not os.path.exists(trace_path):
-            error ("no trace files")
-            continue
 
-        temp = os.path.join(bin_path, "Win64")
-
-        for root, dirs, files in os.walk(temp):
+    def find_executable_path(path):
+        for root, dirs, files in os.walk(path):
             for file in files:
                 if file.endswith(".exe") and file.find(exec_name_part) != -1:
-                    exec_path = os.path.join(bin_path, "Win64", file)
-                    exec_name = file[:-4]
+                    return os.path.join(path,  file)
+            for dir in dirs:
+                sub_path = find_executable_path(os.path.join(path, dir))
+                if sub_path != None:
+                    return sub_path
+                    
+        return None
+    
 
+    def find_trace_path(path):
+        for root, dirs, files in os.walk(path):
+            for dir in dirs:
+                if dir == "MemTrace":
+                    return os.path.join(path, dir)
+                else:
+                    sub_path = find_trace_path(os.path.join(path, dir))
+                    if sub_path != None:
+                        return sub_path
+                    
+        return None
+
+    exec_path = find_executable_path(game_path)
+    if (exec_path != None):
+        exec_name = os.path.basename(exec_path)[:-4]
+    trace_path = find_trace_path(game_path)
     if exec_path == None:
         error("exec files path not found")
         os._exit(1)
 
-    info(f"executable path found: {exec_path}")
+    info(f"executable path found: {exec_path}, {exec_name}")
     info(f"upload path: {upload_api}")
 
     output_dir = os.path.join(workspace, "output")

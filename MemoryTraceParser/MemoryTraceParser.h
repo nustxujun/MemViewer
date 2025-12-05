@@ -28,7 +28,7 @@ struct ModuleInfo
 	std::string name;
 };
 
-#define Log(...) std::cout << std::format(__VA_ARGS__) << std::endl
+#define Log(...) std::cout << std::format(__VA_ARGS__) + "\n"
 #define Error( ...) {std::cout << "\n\nerror: " <<std::format(__VA_ARGS__) << std::endl;assert(false);exit(-1);}
 #define Assert(cond, ...) if (!(cond)) {Error(__VA_ARGS__);}
 

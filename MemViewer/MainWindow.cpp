@@ -112,7 +112,7 @@ void ShowMainWindow()
     ImGui::Begin("Main window",&open,flags);
 
     std::string file_path;
-    ModalWindow::ProcessModalWindow();
+    //ModalWindow::ProcessModalWindow();
 
     static TraceView View;
     View.Show();

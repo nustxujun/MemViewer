@@ -30,5 +30,5 @@ add_executable(MemViewer ${SOURCES} ${IMGUI_SOURCES})
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     target_link_libraries(MemViewer d3d12.lib d3dcompiler.lib dxgi.lib)
-
+    target_link_options(MemViewer PRIVATE "/STACK:16777216")
 endif()

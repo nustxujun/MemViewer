@@ -11,7 +11,6 @@
 #include <format>
 #include <random>
 #include <atomic>
-
 auto get_colors = [](int count) {
 	auto hslToRgb = [](float h, float s, float l) ->std::tuple<int, int, int>
 		{
@@ -67,7 +66,7 @@ auto get_colors = [](int count) {
 
 	return colors;
 };
-#pragma optimize("",off)
+
 void TimelineView::InitializeImpl()
 {
 	frames.clear();
@@ -106,7 +105,7 @@ void TimelineView::InitializeImpl()
 			for (auto i = begin; i < end; ++i)
 			{
 				auto& alloc = allocs[i];
-				auto end_time = std::min<int>(alloc.end, range.end);
+				auto end_time = std::min<uint32_t>(alloc.end, range.end);
 
 				EXIT_IF_STOPED()
 
@@ -338,7 +337,8 @@ void TimelineView::CalCategories()
 					continue;
 				}
 
-				for (int j = info.start; j < info.end; ++j)
+				auto end = std::min<uint32_t>(info.end, count);
+				for (int j = info.start; j < end; ++j)
 					cate_datas[cat_idx][j - range.begin].fetch_add(info.size, std::memory_order_relaxed);
 			}
 			});

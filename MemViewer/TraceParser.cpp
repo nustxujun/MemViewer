@@ -10,6 +10,7 @@
 #include <format>
 #include <mutex>
 #include "TraceInstance.h"
+
 CustomData::Ptr CustomData::createCustomData(int type)
 {
 	return std::make_shared<CustomData>();
@@ -922,13 +923,6 @@ Calltree::Ptr Calltree::diff(Ptr tree1, Ptr tree2)
 		return NodeRef{tree, cur++};
 	};
 	auto merge_node = [&](Node* n1, Node* n2, NodeRef node,bool reversed,auto& merge_fuc)->void{
-		
-
-		if (n1->name.find("MeshCluster::Resize") != -1)
-		{
-			Log("err");
-		}
-
 		std::stable_sort(n1->children.begin(), n1->children.end(), [](auto& a, auto& b){
 			return a->name < b->name;
 		});

@@ -85,15 +85,17 @@ uint32_t CategoryView::findCategory()
 				continue;
 
 			auto cur_node = node;
+			int skip = 1;
 			while (cur_node)
 			{
 				EXIT_IF_STOPED();
 
 				cat_idx = MatchCategory(cur_node->name, categories);
-				if (cat_idx != -1)
+				if (cat_idx != -1 && skip <= 0)
 				{
 					break;
 				}
+				skip--;
 				cur_node = *cur_node->parent;
 			}
 			if (cur_node != nullptr)
