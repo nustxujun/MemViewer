@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <fstream>
 #include <algorithm>
+#include <execution>
 #include "MemoryTraceParser.h"
 #include "demangle.h"
 
@@ -322,21 +323,22 @@ static std::vector<std::string> addr2symbol(const std::vector<Symbol>& symbols, 
     for (auto addr : addrs)
     {
         auto va = addr - base;
-        if (va >= symbols[0].offset)
+        if (va >= symbols[0].offset && search_begin != search_end)
         {
 
             search_begin = std::upper_bound(search_begin, search_end,va, [](auto& a, auto& b){
                 return a < b.offset;
             });
-            Assert(search_begin != search_end, "failed to find symbol");
-            search_begin--;
 
-            result.push_back(search_begin->name);
+
+            if (search_begin != search_end)
+            {
+                result.push_back(search_begin->name);
+                continue;
+            }
         }
-        else
-        {
-            result.push_back("unknown");
-        }
+
+        result.push_back(std::format("{:#x}", addr));
     }
 
     return result;
@@ -387,6 +389,11 @@ int ParseSymbolByVA(const std::vector<uint64_t>& addrs, std::vector<ModuleInfo>&
     {
         uint64_t addr;
         uint32_t pos;
+
+        bool operator < (const AddrInfo& other)const
+        {
+            return addr < other.addr;
+        }
     };
     std::unordered_map<InternalModuleInfo*, std::vector<AddrInfo>> sorted_addrs;
     symbols.resize(addrs.size(), {});
@@ -436,6 +443,7 @@ int ParseSymbolByVA(const std::vector<uint64_t>& addrs, std::vector<ModuleInfo>&
     std::vector<TaskInfo> task_list;
     for (auto& item: sorted_addrs)
     {
+        std::sort(std::execution::par, item.second.begin(), item.second.end());
         auto addr_list = std::span(item.second);
         task_list.push_back({item.first, addr_list.subspan(0, addr_list.size())});
 
