@@ -156,15 +156,15 @@ void TraceData::ShrinkCalltree()
 
 TraceInstance::Ptr TraceInstance::Create(const std::string& path, std::function<void(Ptr)>&& callback)
 {
-	if (Traces.contains(path))
-	{
-		auto trace = std::make_shared<TraceInstance>(Traces[path]);
-		AsyncTask("ParseData",[trace](){return trace;},[ cb = std::move(callback)](auto trace) {
-			trace->state = Prepared;
-			cb(trace);
-		});
-		return trace;
-	}
+	//if (Traces.contains(path))
+	//{
+	//	auto trace = std::make_shared<TraceInstance>(Traces[path]);
+	//	AsyncTask("ParseData",[trace](){return trace;},[ cb = std::move(callback)](auto trace) {
+	//		trace->state = Prepared;
+	//		cb(trace);
+	//	});
+	//	return trace;
+	//}
 
 
 	auto data = std::make_shared<TraceData>();

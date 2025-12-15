@@ -10,7 +10,6 @@
 #include <format>
 #include <mutex>
 #include "TraceInstance.h"
-
 CustomData::Ptr CustomData::createCustomData(int type)
 {
 	return std::make_shared<CustomData>();
@@ -247,14 +246,6 @@ bool TraceData::ParseTraceFile(const std::string& path, TraceData* trace)
 	}
 
 
-	for (auto idx : zero_end)
-	{
-		allocs[idx].end = end;
-	}
-
-
-
-	zero_end.clear();
 
 
 	int num_snapshots = 0;
@@ -381,6 +372,15 @@ bool TraceData::ParseTraceFile(const std::string& path, TraceData* trace)
 		}
 
 	}
+
+
+	for (auto idx : zero_end)
+	{
+		allocs[idx].end = end;
+	}
+	zero_end.clear();
+
+
 
 	// rhi info
 	std::vector<RhiInfo> rhis;

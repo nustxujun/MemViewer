@@ -85,7 +85,7 @@ uint32_t CategoryView::findCategory()
 				continue;
 
 			auto cur_node = node;
-			int skip = 1;
+			int skip = 0;
 			while (cur_node)
 			{
 				EXIT_IF_STOPED();
