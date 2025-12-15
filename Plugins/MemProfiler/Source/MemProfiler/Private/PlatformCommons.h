@@ -4,7 +4,7 @@
 #include "Platforms/Windows/WinHook.h"
 #include "Platforms/Windows/WindowsInternalAllocator.h"
 #include "Platforms/Windows/WindowsMemoryInfo.h"
-
+#include "Platforms/Windows/WindowsExternalTracker.h"
 #elif PLATFORM_IOS
 #include "Platforms/IOS/IOSHook.h"
 #include "Platforms/IOS/IOSInternalAllocator.h"

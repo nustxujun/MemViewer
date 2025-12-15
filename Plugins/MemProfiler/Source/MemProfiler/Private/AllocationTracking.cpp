@@ -1,7 +1,8 @@
 //#if ENABLE_LOW_LEVEL_MEM_TRACKER
 
 #include "AllocationTracking.h"
-#include "HAL/PlatformFilemanager.h"
+#include "HAL/PlatformFileManager.h"
+#include "HAL/LowLevelMemTracker.h"
 #include "GenericPlatform/GenericPlatformFile.h"
 #include "Async/ParallelFor.h"
 #include "Misc/CoreDelegates.h"
@@ -68,6 +69,9 @@ struct AllocTrackState
 	bool bMallocTrace = true;
 	bool bStandAlone = false;
 	bool bTrackVM = false;
+	bool bHook = true;
+	bool bExternalTracker= false;
+	bool bPause = false;
 };
 
 static AllocTrackState*& GetState()
@@ -93,12 +97,6 @@ struct FInternalMallocScope
 	}
 };
 
-#if PLATFORM_IOS
-#define USING_MAPPED_FILE 1
-#else
-#define USING_MAPPED_FILE 0
-#endif
-
 constexpr int CacheSize = 32;
 template<class T, bool bAutoDrop = true>
 class MappedAlloc
@@ -107,11 +105,19 @@ public:
 	MappedAlloc(const char* path)
 	{
 		PageSize = FPlatformMemory::GetConstants().PageSize * sizeof(T) * CacheSize;
-#if USING_MAPPED_FILE
+#if PLATFORM_IOS || PLATFORM_ANDROID
 		Handle = open(path, O_RDWR | O_CREAT, S_IRWXU);
 		checkf(Handle != -1, TEXT("errno: %d, path: %s"), errno, ANSI_TO_TCHAR(path));
-#else
+#elif PLATFORM_WINDOWS
 		Handle = MakeShareable<FArchive>(IFileManager::Get().CreateFileWriter(ANSI_TO_TCHAR(path), FILEWRITE_AllowRead));
+
+		//FileHandle = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+		//checkf(FileHandle != INVALID_HANDLE_VALUE, TEXT("errno: %d, path %s"), GetLastError(), ANSI_TO_TCHAR(path));
+
+		//LARGE_INTEGER LI;
+		//LI.QuadPart = (NumPages + 1) * PageSize;
+		//ensure(SetFilePointerEx(FileHandle, LI, NULL, FILE_BEGIN) != INVALID_SET_FILE_POINTER);
+		//ensure(SetEndOfFile(FileHandle) != 0);
 #endif
 	}
 
@@ -126,19 +132,25 @@ private:
 
 		if (Begin + n >= End)
 		{
-//#if !USING_MAPPED_FILE
-//			FInternalMallocScope Scope;
-//#endif
-#if USING_MAPPED_FILE
+			//FScopeLock InternalLock(&GetState()->InternalMallocMutex);
+#if !PLATFORM_WINDOWS
+			FInternalMallocScope Scope;
+#endif
+#if PLATFORM_IOS || PLATFORM_ANDROID
 
 			ensure(ftruncate(Handle, (NumPages + 1) * PageSize) == 0);
 			if (bAutoDrop && Buffer)
 			{
+				//				madvise(Buffer, PageSize, MADV_DONTNEED);
 				munmap(Buffer, PageSize);
+//				GetState()->Overhead -= PageSize;
 			}
 			T* Page = (T*)mmap(0, PageSize, PROT_READ | PROT_WRITE, MAP_SHARED, Handle, NumPages * PageSize);
-#else
+#elif PLATFORM_WINDOWS
 			T* Page;
+
+
+
 
 			if (bAutoDrop)
 			{
@@ -152,9 +164,51 @@ private:
 			{
 				Page = (T*)FGenericPlatformInternalAllocator::Malloc(PageSize);
 			}
+
+			//if (Buffer)
+			//{
+			//	if (!bAutoDrop)
+			//	{
+			//		FMemory::Memcpy(Buffer, ShadowBuffer, PageSize);
+			//	}
+
+			//	UnmapViewOfFile(Buffer);
+			//	//GetState()->Overhead -= PageSize;
+			//	CloseHandle(Handle);
+
+
+			//}
+
+
+			//LARGE_INTEGER LI;
+			//LI.QuadPart = (NumPages + 1) * PageSize;
+			//ensure(SetFilePointerEx(FileHandle, LI, NULL, FILE_BEGIN) != INVALID_SET_FILE_POINTER);
+			//if (SetEndOfFile(FileHandle) == 0)
+			//{
+			//	auto Err= GetLastError();
+			//	checkf(false, TEXT("errno: %d"), Err);
+			//}
+			//Handle = CreateFileMappingA(FileHandle, NULL, PAGE_READWRITE, LI.HighPart, LI.LowPart, NULL);
+			//checkf(Handle != INVALID_HANDLE_VALUE && Handle != 0, TEXT("errno: %d"), GetLastError());
+
+			//LI.QuadPart = NumPages * PageSize;
+			//T* Page = (T*)MapViewOfFile(Handle, FILE_MAP_ALL_ACCESS, LI.HighPart, LI.LowPart, PageSize);
+			//checkf(Page, TEXT("errno: %d"), ::GetLastError());
+			//if (!bAutoDrop)
+			//{
+			//	//ShadowBuffer = (T*)malloc(PageSize);
+			//	ShadowBuffer = (T*)FGenericPlatformInternalAllocator::Malloc(PageSize);
+			//	memset(ShadowBuffer, 0, PageSize);
+
+			//}
+#else
+			T* Page = 0;
+			return nullptr;
 #endif
+			//GetState()->bInternalMalloc.SetValue(false);
 
 			check(Page);
+//			GetState()->Overhead += PageSize;
 
 			NumPages++;
 
@@ -174,7 +228,7 @@ public:
 		FScopeLock Lock(&SharedMutex);
 		auto Data = Malloc(Size);
 		FMemory::Memcpy(Data, Elems,  Size * sizeof(T));
-#if !USING_MAPPED_FILE
+#if PLATFORM_WINDOWS
 		Handle->Serialize((uint8*)Elems, Size * sizeof(T));
 #endif
 		return Data;
@@ -182,7 +236,7 @@ public:
 
 	void WriteOnly(const T* Elems, uint32 Size)
 	{
-#if !USING_MAPPED_FILE
+#if PLATFORM_WINDOWS
 		FScopeLock Lock(&SharedMutex);
 		Handle->Serialize((uint8*)Elems, Size * sizeof(T));
 #else
@@ -198,9 +252,9 @@ private:
 	T* End = 0;
 	uint64 PageSize = 0;
 	uint32 NumPages = 0;
-#if !USING_MAPPED_FILE
+#if PLATFORM_WINDOWS
 	TSharedPtr<FArchive> Handle;
-#else
+#elif PLATFORM_IOS || PLATFORM_ANDROID
 	int Handle = 0;
 #endif
 	FCriticalSection SharedMutex;
@@ -292,6 +346,7 @@ struct AllocTrackEnvironment
 	FCriticalSection RHIMutex;
 	FCriticalSection CustomMutex;
 	std::atomic_uint32_t FrameCount = 1;
+	std::atomic_uint32_t UnrecordSize = 0;
 };
 
 static AllocTrackEnvironment*& GetEnv()
@@ -348,6 +403,8 @@ FString GetFilePath(const TCHAR* Filename)
 {
 #if PLATFORM_IOS
 	return IFileManager::Get().ConvertToAbsolutePathForExternalAppForWrite(*FPaths::Combine(GetFolderPath(), Filename));
+#elif PLATFORM_ANDROID
+	return IAndroidPlatformFile::GetPlatformPhysical().FileRootPath(*FPaths::Combine(GetFolderPath(), Filename));
 #else
 	return FPaths::Combine(GetFolderPath(), Filename);
 #endif
@@ -367,6 +424,8 @@ FORCENOINLINE static void GetProgramSize()
 //	FAllocationTracking::TrackAllocation((void*)1, (uint32)std::max(0,Used), 0);
 }
 
+void TrackAllocationImpl(const void* Ptr, uint32 Size, uint32 Frame, uint32 StackId);
+int GetCurrentStackId(uint64* Stack);
 void FAllocationTracking::Initialize(const TCHAR* CmdLine, const TCHAR* InDir)
 {
 
@@ -391,8 +450,10 @@ void FAllocationTracking::Initialize(const TCHAR* CmdLine, const TCHAR* InDir)
 
 	GetState()->bMallocTrace = FParse::Param(CmdLine, TEXT("nomalloc")) == false;
 	GetState()->bCapturingStack = FParse::Param(CmdLine, TEXT("traceback")) == true;
-	//GetState()->bStandAlone = FParse::Param(CmdLine, TEXT("standalone")) == true;
+	GetState()->bHook = FParse::Param(CmdLine, TEXT("hook")) == true;
 	GetState()->bTrackVM = FParse::Param(CmdLine, TEXT("trackvm")) == true;
+	GetState()->bExternalTracker = FParse::Param(CmdLine, TEXT("externaltracker")) == true;
+	GetState()->bPause = FParse::Param(CmdLine, TEXT("pausetracker")) == true;
 	auto& FileMgr = IFileManager::Get();
 	const FString Dir = InDir;
 
@@ -477,29 +538,35 @@ void FAllocationTracking::Initialize(const TCHAR* CmdLine, const TCHAR* InDir)
 
 	if (IsCapturingStack() && GetState()->bMallocTrace)
 	{
-		FGenericPlatformHook::StartHooking(FAllocationTracking::TrackAllocation, FAllocationTracking::TrackFree);
+
+		if (GetState()->bExternalTracker)
+		{
+			FGenericPlatformExternalTracker::Start(+[](const void* Ptr, unsigned int Size, unsigned int Frame, unsigned long long* Stack) {
+				TrackAllocationImpl(Ptr, Size, Frame, ::GetCurrentStackId(Stack));
+				});
+		}
+
+		if (GetState()->bHook)
+			FGenericPlatformHook::StartHooking(FAllocationTracking::TrackAllocation, FAllocationTracking::TrackFree);
+		else
+		{
+#if ENABLE_MEM_TRACKER
+			GMemTrackerAllocEvent = +[](const void* Ptr, SIZE_T Size) {
+				FAllocationTracking::TrackAllocation(Ptr, Size, 0);
+				};
+
+			GMemTrackerFreeEvent = +[](const void* Ptr) {
+				FAllocationTracking::TrackFree(Ptr, 0);
+				};
+#endif
+		}
+
 	}
-// 	else
-// 	{
-// #if ENABLE_LOW_LEVEL_MEM_TRACKER
-// 		GAllocationEvent = +[](const void* Ptr, int64 Size, ELLMTracker Tracker, ELLMAllocType Type){ 
-// 			//if (Tracker != ELLMTracker::Default)
-// 			//	return;
-// 			FAllocationTracking::TrackAllocation(Ptr, Size,0);
-// 		};
-
-// 		GFreeEvent = +[](const void* Ptr, ELLMTracker Tracker, ELLMAllocType Type) {
-// 			//if (Tracker != ELLMTracker::Default)
-// 			//	return;
-// 			FAllocationTracking::TrackFree(Ptr, 0);
-
-// 		};
-// #endif
-// 	}
 
 	GetState()->bInitialized = true;
 	GetProgramSize();
 };
+
 
 int FAllocationTracking::GetTrackerType()
 {
@@ -539,30 +606,16 @@ static int FastCaptureBackTraceOnWin64(uint64* BackTrace, uint32 MaxDepth)
 }
 #endif
 
-int FAllocationTracking::GetCurrentStackId()
+int GetCurrentStackId(uint64* Stack)
 {
-	static const int MAX_DEPTH = 1024;
-	uint64 Stack[MAX_DEPTH + 1];
+	constexpr int skip_num = 0;
 
-#if PLATFORM_WINDOWS 
-	Stack[0] = FastCaptureBackTraceOnWin64(Stack + 1, MAX_DEPTH);
-#elif PLATFORM_ANDROID
-	{
-		FInternalMallocScope Scope;
-		Stack[0] = CaptureStack(Stack + 1, MAX_DEPTH);
-	}
-#else
-	Stack[0] = FPlatformStackWalk::CaptureStackBackTrace(Stack + 1, MAX_DEPTH);
-#endif
-	
-	constexpr int skip_num = 2;
-	
 	if (Stack[0] <= skip_num)
 		return -1;
-	
+
 	Stack[0] -= skip_num;
 	FMemory::Memmove(Stack + 1, Stack + 1 + skip_num, Stack[0] * sizeof(uint64));
-	
+
 	TraceKey Key(Stack);
 
 	auto& Env = *GetEnv();
@@ -578,7 +631,7 @@ int FAllocationTracking::GetCurrentStackId()
 		if (TraceRet == nullptr)
 		{
 			auto TraceCount = Stack[0] + 1;
-			auto MappedTrace = Env.MappedStacks->WriteAndGet(Stack, TraceCount );
+			auto MappedTrace = Env.MappedStacks->WriteAndGet(Stack, TraceCount);
 
 			Key.Trace = MappedTrace;
 			StackId = StackIndex++;
@@ -594,14 +647,43 @@ int FAllocationTracking::GetCurrentStackId()
 			//StackId = Env.TraceMap.get(TraceRet);
 		}
 	}
-	
+
 	return StackId;
+}
+
+int FAllocationTracking::GetCurrentStackId()
+{
+	static const int MAX_DEPTH = 1024;
+	uint64 Stack[MAX_DEPTH + 1];
+
+#if PLATFORM_WINDOWS 
+	Stack[0] = FastCaptureBackTraceOnWin64(Stack + 1, MAX_DEPTH);
+#elif PLATFORM_ANDROID
+	FInternalMallocScope Scope;
+	Stack[0] = CaptureStack(Stack + 1, MAX_DEPTH);
+#else
+	Stack[0] = FPlatformStackWalk::CaptureStackBackTrace(Stack + 1, MAX_DEPTH);
+#endif
+	
+	return ::GetCurrentStackId(Stack);
+}
+
+void TrackAllocationImpl(const void* Ptr, uint32 Size, uint32 Frame, uint32 StackId)
+{
+	AllocInfo Info;
+	Info.Ptr = (uint64)Ptr;
+	Info.Size = Size;
+	Info.Trace = StackId;
+	Info.Begin = Frame;
+	//Info.Tag = VMUserTag;
+	GetEnv()->Allocations->WriteOnly(&Info, 1);
 }
 
 void FAllocationTracking::TrackAllocation(const void* Ptr, uint32 Size, uint32 VMUserTag)
 {
-	if (Size <= GetState()->SizeLimit)
+	if (Size <= GetState()->SizeLimit || GetState()->bPause)
 	{
+		GetEnv()->UnrecordSize.fetch_add(Size,std::memory_order_relaxed);
 		return;
 	}
 
@@ -610,19 +692,22 @@ void FAllocationTracking::TrackAllocation(const void* Ptr, uint32 Size, uint32 V
         return;
 #endif
 
-	int StackId = GetCurrentStackId();
-	
-	if (StackId < 0)
+	if (Ptr == 0)
 		return;
 
-	AllocInfo Info;
-	Info.Ptr = (uint64)Ptr;
-	Info.Size = Size;
-	Info.Trace = StackId;
-	Info.Begin = GetCurrentTime();
-	Info.Tag = VMUserTag;
-	GetEnv()->Allocations->WriteOnly(&Info, 1);
+	if (GetState()->bExternalTracker)
+	{
+		FGenericPlatformExternalTracker::TiggerAlloc(Ptr, Size, GetCurrentTime());
+	}
+	else
+	{
+		int StackId = GetCurrentStackId();
+	
+		if (StackId < 0)
+			return;
 
+		TrackAllocationImpl(Ptr, Size, GetCurrentTime(),StackId);
+	}
 }
 
 void FAllocationTracking::TrackFree(const void* Ptr, uint32 VMUserTag)
@@ -631,6 +716,8 @@ void FAllocationTracking::TrackFree(const void* Ptr, uint32 VMUserTag)
     if (IsInternalMalloc())
         return;
 #endif
+	if (Ptr == 0 || GetState()->bPause)
+		return;
 	DeallocInfo Info;
 	Info.Ptr = (uint64)Ptr;
 	Info.End = GetCurrentTime();
@@ -824,7 +911,7 @@ void FAllocationTracking::UpdateFrame()
 		auto Infos = FGenericPlatformMemoryInfo::GetCustomMemoryInfo();
 		int Platform = 0;
 		(*FrameFile) << Platform;
-		uint32 Count = Infos.size();
+		uint32 Count = Infos.size() + 1;
 		(*FrameFile) << Count;
 
 		for (auto& info : Infos)
@@ -836,6 +923,13 @@ void FAllocationTracking::UpdateFrame()
 			FrameFile->Serialize((uint8*)info.first.c_str(), len);
 			(*FrameFile) << size;
 		}
+
+		const static std::string unrecord_str=  "Unrecord";
+		int len = unrecord_str.length();
+		(*FrameFile) << len;
+		FrameFile->Serialize((uint8*)unrecord_str.c_str(), len);
+		uint32_t size = GetEnv()->UnrecordSize;
+		(*FrameFile) << size;
 	}
 
 
@@ -866,6 +960,20 @@ static FAutoConsoleCommand AllocationTrackingTakeSnpashot(TEXT("alloc.take"), TE
 {
 	{
 		TakeSnapshot(Args.Num() > 0 ? Args[0] : LexToString(GetCurrentTime().load()));
+	}
+}));
+
+static FAutoConsoleCommand AllocationTrackingEnable(TEXT("alloc.enable"), TEXT(""), FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		{
+			GetState()->bPause = false;
+		}
+}));
+
+static FAutoConsoleCommand AllocationTrackingDisable(TEXT("alloc.disable"), TEXT(""), FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+{
+	{
+		GetState()->bPause = true;
 	}
 }));
 

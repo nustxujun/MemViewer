@@ -1,5 +1,5 @@
 #include "MemoryProfiler.h"
-#include "HAL/PlatformFilemanager.h"
+#include "HAL/PlatformFileManager.h"
 #include "GenericPlatform/GenericPlatformFile.h"
 #include "AllocationTracking.h"
 #include <string>

@@ -74,12 +74,12 @@ static auto GetStartCommandLine = []() {
 	if (!bEnableProfiler)
 		return 0;
 
-	auto Path = FPaths::ProjectSavedDir();
-	auto Dir = FPaths::Combine(Path ,TEXT("/MemTrace/")) + FDateTime::Now().ToString(TEXT("%Y_%m_%d-%H_%M_%S"));
+	auto Path = FPlatformMisc::ProjectDir();
+	GetDir() = FPaths::Combine(Path, TEXT("/MemTrace/")) + FDateTime::Now().ToString(TEXT("%Y_%m_%d-%H_%M_%S"));
 
-	FMemoryProfiler::Initialize(*Str, *Dir);
+	FMemoryProfiler::Initialize(*Str, *GetDir());
 	FUObjectProfiler::Initialize();
-	FLuaMemProfiler::Initialize(*Str, *Dir);
+	FLuaMemProfiler::Initialize(*Str, *GetDir());
 	return 0;
 }();
 #elif PLATFORM_ANDROID

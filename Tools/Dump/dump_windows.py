@@ -72,7 +72,8 @@ def main():
     parser.add_argument('-n', help='tag name')
     parser.add_argument('-u', help='upload path')
     parser.add_argument('-w', help='workspace')
-    parser.add_argument('-s', help='force generate symbols')
+    parser.add_argument('-fs', action='store_true',help='force generate symbols')
+    parser.add_argument('-nc', action='store_true', help='do not use config file')
 
     args = parser.parse_args()
 
@@ -89,14 +90,14 @@ def main():
     game_path = args.g
     tag_name = args.n or ""
     exec_path = None
-    force_generate_symbols = args.s
+    force_generate_symbols = args.fs
     exec_name_part = None
 
     if args.u:
         global upload_api
         upload_api = args.u
 
-    if (config.read(os.path.join(workspace,'config.ini')) and config.has_section("dump")):
+    if not args.nc and (config.read(os.path.join(workspace,'config.ini')) and config.has_section("dump")):
         if config.has_option("dump",'game_path'):
             game_path=config.get("dump",'game_path')
         if config.has_option("dump",'tag_name'):
@@ -148,12 +149,15 @@ def main():
         return None
 
     exec_path = find_executable_path(game_path)
-    if (exec_path != None):
-        exec_name = os.path.basename(exec_path)[:-4]
-    trace_path = find_trace_path(game_path)
     if exec_path == None:
         error("exec files path not found")
         os._exit(1)
+    exec_name = os.path.basename(exec_path)[:-4]
+    trace_path = find_trace_path(game_path)
+    if trace_path == None:
+        error("trace path not found")
+        os._exit(0)
+
 
     info(f"executable path found: {exec_path}, {exec_name}")
     info(f"upload path: {upload_api}")

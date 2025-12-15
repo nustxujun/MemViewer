@@ -42,7 +42,7 @@ public:
         return Buffer;
     }
 
-    T GetValue()
+    T& GetValue()
     {
         return *(T*)GetData();
     }
