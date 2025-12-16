@@ -7,7 +7,7 @@ class FWinHook
 {
 public:
 
-	static void StartHooking(MallocEvent OnMalloc, FreeEvent OnFree);
+	static void StartHooking(MallocEvent OnMalloc, FreeEvent OnFree, bool bVM);
 	static void StopHooking();
 	static bool IsInternalFunction(uint64 Addr);
 	static bool IsEnabled();

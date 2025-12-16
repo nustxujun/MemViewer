@@ -21,21 +21,22 @@ FHookState& GetHookState()
 	return *State;
 }
 
+static thread_local bool internal_malloc = false;
 FORCEINLINE bool IsInternalOpt()
 {
-	return GetHookState().bInternal.GetValue();
+	return internal_malloc;
 }
 
 struct FScopeInternalOpt
 {
 	FORCEINLINE FScopeInternalOpt()
 	{
-		Old = GetHookState().bInternal.GetValue();
-		GetHookState().bInternal.SetValue(true);
+		Old = internal_malloc;
+		internal_malloc = true;
 	}
 	FORCEINLINE ~FScopeInternalOpt()
 	{
-		GetHookState().bInternal.SetValue(Old);
+		internal_malloc = Old;
 	}
 	bool Old;
 };
@@ -46,6 +47,7 @@ struct FScopeInternalOpt
 #define BEGIN_HOOK() 
 #define IsInternalOpt() false
 
+
 typedef PVOID(WINAPI* HeapAlloc_t)(PVOID _heap, ULONG _flags, SIZE_T _size);
 HeapAlloc_t OriginalHeapAlloc;
 MallocEvent OnHeapAlloc;
@@ -54,7 +56,7 @@ PVOID WINAPI MyHeapAlloc(PVOID hHeap, ULONG _flags, SIZE_T _size)
 	BEGIN_HOOK();
 	auto Ptr = OriginalHeapAlloc(hHeap, _flags , _size);
 
-	if (hHeap == FWindowsInternalAllocator::InternalHeap || IsInternalOpt() || Ptr == nullptr)
+	if ( IsInternalOpt() || Ptr == nullptr)
 		return Ptr;
 
 	OnHeapAlloc(Ptr, FMath::Max<SIZE_T>(_size, HeapSize(hHeap,0,Ptr)), 0);
@@ -71,7 +73,7 @@ BOOLEAN WINAPI MyHeapFree(PVOID hHeap, ULONG dwFlags, PVOID lpMem)
 
 	auto Result = OriginalHeapFree(hHeap, dwFlags , lpMem);
 
-	if (hHeap == FWindowsInternalAllocator::InternalHeap || IsInternalOpt())
+	if (IsInternalOpt())
 		return Result;
 
 	OnHeapFree(lpMem,  0);
@@ -85,7 +87,7 @@ LPVOID WINAPI MyHeapRealloc(HANDLE hHeap, DWORD dwFlags, LPVOID lpMem, SIZE_T dw
 	BEGIN_HOOK();
 	auto Ptr = OriginalHeapRealloc(hHeap, dwFlags, lpMem, dwBytes);
 	
-	if (hHeap == FWindowsInternalAllocator::InternalHeap || Ptr == nullptr || IsInternalOpt())
+	if (Ptr == nullptr || IsInternalOpt())
 		return Ptr;
 
 	OnHeapFree(lpMem, 0);
@@ -109,6 +111,7 @@ LPVOID WINAPI MyVirtualAlloc(LPVOID lpAddress, SIZE_T dwSize, DWORD flAllocation
 	return Ptr;
 }
 
+
 typedef BOOL(WINAPI* VirtualFree_t)(LPVOID, SIZE_T, DWORD);
 VirtualFree_t OriginalVirtualFree;
 FreeEvent OnVirtualFree;
@@ -122,6 +125,36 @@ BOOL WINAPI MyVirtualFree(LPVOID lpAddress, SIZE_T dwSize, DWORD dwFreeType)
 	}
 
 	OnVirtualFree(lpAddress, 0);
+	return Result;
+}
+
+typedef LONG(* NtAllocateVirtualMemory_t)(HANDLE , PVOID* , ULONG_PTR , PSIZE_T , ULONG , ULONG );
+NtAllocateVirtualMemory_t OriginalNtAllocateVirtualMemory;
+MallocEvent OnNtAllocateVirtualMemory;
+LONG MyNtAllocateVirtualMemory(HANDLE Handle, PVOID *BaseAddress, ULONG_PTR ZeroBits, PSIZE_T RegionSize, ULONG AllocationType, ULONG Protect)
+{
+	auto Result = OriginalNtAllocateVirtualMemory(Handle, BaseAddress, ZeroBits, RegionSize, AllocationType, Protect);
+	if ((AllocationType & MEM_COMMIT) == 0 || FWindowsInternalAllocator::IsInternalPointer(*BaseAddress))
+	{
+		return Result;
+	}
+
+	OnNtAllocateVirtualMemory(*BaseAddress, *RegionSize, 0);
+	return Result;
+}
+
+typedef LONG(* NtFreeVirtualMemory_t)(HANDLE , PVOID* , PSIZE_T , ULONG );
+NtFreeVirtualMemory_t OriginalNtFreeVirtualMemory;
+FreeEvent OnNtFreeVirtualMemory;
+BOOL WINAPI MyNtFreeVirtualMemory(HANDLE Handle, PVOID* BaseAddress,  PSIZE_T RegionSize, ULONG FreeType)
+{
+	auto Result = OriginalNtFreeVirtualMemory(Handle, BaseAddress, RegionSize, FreeType);
+	if ((FreeType & MEM_DECOMMIT) == 0 || FWindowsInternalAllocator::IsInternalPointer(*BaseAddress))
+	{
+		return Result;
+	}
+
+	OnNtFreeVirtualMemory(*BaseAddress, 0);
 	return Result;
 }
 
@@ -229,9 +262,10 @@ RtlAllocateHeap_t OriginalRtlAllocateHeap = 0;
 MallocEvent OnRtlAllocateHeap = 0;
 PVOID WINAPI MyRtlAllocateHeap(PVOID hHeap, ULONG _flags, SIZE_T _size)
 {
+	BEGIN_HOOK();
 	auto Ptr = OriginalRtlAllocateHeap(hHeap, _flags, _size);
 
-	if (hHeap == FWindowsInternalAllocator::InternalHeap || Ptr == nullptr )
+	if ( IsInternalOpt() || Ptr == nullptr )
 		return Ptr;
 
 	OnRtlAllocateHeap(Ptr, FMath::Max<SIZE_T>(_size, HeapSize(hHeap, 0, Ptr)), 0);
@@ -244,9 +278,10 @@ RtlFreeHeap_t OriginalRtlFreeHeap;
 FreeEvent OnRtlFreeHeap;
 BOOLEAN WINAPI MyRtlFreeHeap(PVOID hHeap, ULONG dwFlags, PVOID lpMem)
 {
+	BEGIN_HOOK();
 	auto Result = OriginalRtlFreeHeap(hHeap, dwFlags, lpMem);
 
-	if (hHeap == FWindowsInternalAllocator::InternalHeap)
+	if ( IsInternalOpt())
 		return Result;
 
 	OnRtlFreeHeap(lpMem, 0);
@@ -258,7 +293,7 @@ LPVOID WINAPI MyRtlReAllocateHeap(HANDLE hHeap, DWORD dwFlags, LPVOID lpMem, SIZ
 {
 	auto Ptr = OriginalRtlReAllocateHeap(hHeap, dwFlags, lpMem, dwBytes);
 
-	if (hHeap == FWindowsInternalAllocator::InternalHeap || Ptr == nullptr )
+	if ( Ptr == nullptr )
 		return Ptr;
 
 	OnRtlFreeHeap(lpMem, 0);
@@ -266,9 +301,9 @@ LPVOID WINAPI MyRtlReAllocateHeap(HANDLE hHeap, DWORD dwFlags, LPVOID lpMem, SIZ
 	return Ptr;
 }
 
-#define CREATE_HOOK(Module, Name, Event) On##Name = Event; MH_CreateHook(::GetProcAddress(Module, #Name), My##Name, (void**)&Original##Name);   
+#define CREATE_HOOK(Module, Name, Event) {auto Addr = ::GetProcAddress(Module, #Name); checkf(Addr, TEXT("invalid addr 0x%x"),(uint64)Addr) On##Name = Event; auto Result = MH_CreateHook(Addr, My##Name, (void**)&Original##Name); checkf(MH_OK == Result, TEXT("hook failed %d"), Result);};   
 
-void FWinHook::StartHooking(MallocEvent OnMalloc, FreeEvent OnFree)
+void FWinHook::StartHooking(MallocEvent OnMalloc, FreeEvent OnFree, bool bVM)
 {
 	GetHookState();
 	IsInternalFunction(0);
@@ -277,53 +312,57 @@ void FWinHook::StartHooking(MallocEvent OnMalloc, FreeEvent OnFree)
 	HMODULE hntdll32 = ::GetModuleHandleA("ntdll");
 	HMODULE hkernel32 = ::GetModuleHandleA("kernel32");
 	HMODULE hucrtbase = ::GetModuleHandleA("ucrtbase.dll");
+	HMODULE hntoskrnl = LoadLibraryA("ntoskrnl.exe");
+	HMODULE hwin32u = GetModuleHandleA("win32u.dll");
 
 	auto bCRT = hucrtbase!= 0 && ::GetProcAddress(hucrtbase, "malloc") == 0;
 
-	//if (bCRT)
-	//{
-	//	Onmalloc = OnMalloc;
-	//	Onfree = OnFree;
-	//	MH_CreateHook(&malloc, Mymalloc, (void**)&Originalmalloc);
-	//	MH_CreateHook(&free, Myfree, (void**)&Originalfree);
+	if (!bVM)
+	{
+		//if (bCRT)
+		//{
+		//	Onmalloc = OnMalloc;
+		//	Onfree = OnFree;
+		//	MH_CreateHook(&malloc, Mymalloc, (void**)&Originalmalloc);
+		//	MH_CreateHook(&free, Myfree, (void**)&Originalfree);
 
-	//	MH_CreateHook(&realloc, Myrealloc, (void**)&Originalrealloc);
-	//	MH_CreateHook(&_aligned_realloc, My_aligned_realloc, (void**)&Original_aligned_realloc);
+		//	MH_CreateHook(&realloc, Myrealloc, (void**)&Originalrealloc);
+		//	MH_CreateHook(&_aligned_realloc, My_aligned_realloc, (void**)&Original_aligned_realloc);
 
-	//	On_aligned_malloc = OnMalloc;
-	//	On_aligned_free = OnFree;
-	//	MH_CreateHook(&_aligned_malloc, My_aligned_malloc, (void**)&Original_aligned_malloc);
-	//	MH_CreateHook(&_aligned_free, My_aligned_free, (void**)&Original_aligned_free);
+		//	On_aligned_malloc = OnMalloc;
+		//	On_aligned_free = OnFree;
+		//	MH_CreateHook(&_aligned_malloc, My_aligned_malloc, (void**)&Original_aligned_malloc);
+		//	MH_CreateHook(&_aligned_free, My_aligned_free, (void**)&Original_aligned_free);
 
-	//	Oncalloc = OnMalloc;
-	//	MH_CreateHook(&calloc, Mycalloc, (void**)&Originalcalloc);
-	//}
-	//else
-	//{
-	//	CREATE_HOOK(hucrtbase, malloc, OnMalloc);
-	//	CREATE_HOOK(hucrtbase, free, OnFree);
-	//	CREATE_HOOK(hucrtbase, calloc, OnMalloc);
-	//	CREATE_HOOK(hucrtbase, _aligned_malloc, OnMalloc);
-	//	CREATE_HOOK(hucrtbase, _aligned_free, OnFree);
+		//	Oncalloc = OnMalloc;
+		//	MH_CreateHook(&calloc, Mycalloc, (void**)&Originalcalloc);
+		//}
+		//else
+		//{
+		//	CREATE_HOOK(hucrtbase, malloc, OnMalloc);
+		//	CREATE_HOOK(hucrtbase, free, OnFree);
+		//	CREATE_HOOK(hucrtbase, calloc, OnMalloc);
+		//	CREATE_HOOK(hucrtbase, _aligned_malloc, OnMalloc);
+		//	CREATE_HOOK(hucrtbase, _aligned_free, OnFree);
 
-	//	MH_CreateHook(::GetProcAddress(hucrtbase, "realloc"), Myrealloc, (void**)&Originalrealloc);
-	//	MH_CreateHook(::GetProcAddress(hucrtbase, "_aligned_realloc"), My_aligned_realloc, (void**)&Original_aligned_realloc);
+		//	MH_CreateHook(::GetProcAddress(hucrtbase, "realloc"), Myrealloc, (void**)&Originalrealloc);
+		//	MH_CreateHook(::GetProcAddress(hucrtbase, "_aligned_realloc"), My_aligned_realloc, (void**)&Original_aligned_realloc);
+		//}
+		// malloc
+		//CREATE_HOOK(hkernel32,HeapAlloc, OnMalloc);
+		//CREATE_HOOK(hkernel32, HeapFree, OnFree);
+		//MH_CreateHook(::GetProcAddress(hkernel32, "HeapRealloc"), MyHeapRealloc, (void**)&OriginalHeapRealloc);
 
-
-	//}
-	//// malloc
-	//CREATE_HOOK(hntdll32,HeapAlloc, OnMalloc);
-	//CREATE_HOOK(hntdll32, HeapFree, OnFree);
-	//MH_CreateHook(::GetProcAddress(hntdll32, "HeapRealloc"), MyHeapRealloc, (void**)&OriginalHeapRealloc);
-
-	CREATE_HOOK(hntdll32, RtlAllocateHeap, OnMalloc);
-	CREATE_HOOK(hntdll32, RtlFreeHeap, OnFree);
-	MH_CreateHook(::GetProcAddress(hntdll32, "RtlReAllocateHeap"), MyRtlReAllocateHeap, (void**)&OriginalRtlReAllocateHeap);
-
-	// vm
-	//CREATE_HOOK(hkernel32, VirtualAlloc, OnMalloc);
-	//CREATE_HOOK(hkernel32, VirtualFree, OnFree);
-
+		CREATE_HOOK(hntdll32, RtlAllocateHeap, OnMalloc);
+		CREATE_HOOK(hntdll32, RtlFreeHeap, OnFree);
+		MH_CreateHook(::GetProcAddress(hntdll32, "RtlReAllocateHeap"), MyRtlReAllocateHeap, (void**)&OriginalRtlReAllocateHeap);
+	}
+	else
+	{
+		// vm
+		CREATE_HOOK(hntdll32, NtAllocateVirtualMemory, OnMalloc);
+		CREATE_HOOK(hntdll32, NtFreeVirtualMemory, OnFree);
+	}
 	MH_EnableHook(MH_ALL_HOOKS);
 }
 

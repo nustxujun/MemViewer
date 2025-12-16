@@ -8,7 +8,7 @@
 #include "Misc/CoreDelegates.h"
 #include "Containers/Queue.h"
 #include "Containers/SortedMap.h"
-
+#include "Algo/BinarySearch.h"
 #include "PlatformCommons.h"
 #include "DynamicTLS.h"
 
@@ -97,6 +97,12 @@ struct FInternalMallocScope
 	}
 };
 
+#if PLATFORM_IOS
+#define USING_MAPPED_FILE 1
+#else
+#define USING_MAPPED_FILE 0
+#endif
+
 constexpr int CacheSize = 32;
 template<class T, bool bAutoDrop = true>
 class MappedAlloc
@@ -104,26 +110,23 @@ class MappedAlloc
 public:
 	MappedAlloc(const char* path)
 	{
+#if USING_MAPPED_FILE
 		PageSize = FPlatformMemory::GetConstants().PageSize * sizeof(T) * CacheSize;
-#if PLATFORM_IOS || PLATFORM_ANDROID
+
 		Handle = open(path, O_RDWR | O_CREAT, S_IRWXU);
 		checkf(Handle != -1, TEXT("errno: %d, path: %s"), errno, ANSI_TO_TCHAR(path));
-#elif PLATFORM_WINDOWS
-		Handle = MakeShareable<FArchive>(IFileManager::Get().CreateFileWriter(ANSI_TO_TCHAR(path), FILEWRITE_AllowRead));
+#else
+		PageSize = 1024 * 1024 ;
 
-		//FileHandle = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-		//checkf(FileHandle != INVALID_HANDLE_VALUE, TEXT("errno: %d, path %s"), GetLastError(), ANSI_TO_TCHAR(path));
+		Handle = MakeShareable<FArchive>(IFileManager::Get().CreateFileWriter(ANSI_TO_TCHAR(path)));
 
-		//LARGE_INTEGER LI;
-		//LI.QuadPart = (NumPages + 1) * PageSize;
-		//ensure(SetFilePointerEx(FileHandle, LI, NULL, FILE_BEGIN) != INVALID_SET_FILE_POINTER);
-		//ensure(SetEndOfFile(FileHandle) != 0);
 #endif
 	}
 
 	~MappedAlloc()
 	{
-
+		if (Buffer && Begin != Buffer)
+			Handle->Serialize((uint8*)Buffer, (Begin - Buffer) * sizeof(T));
 	}
 private:
 	T* Malloc(uint32 n = 1)
@@ -136,7 +139,7 @@ private:
 #if !PLATFORM_WINDOWS
 			FInternalMallocScope Scope;
 #endif
-#if PLATFORM_IOS || PLATFORM_ANDROID
+#if USING_MAPPED_FILE
 
 			ensure(ftruncate(Handle, (NumPages + 1) * PageSize) == 0);
 			if (bAutoDrop && Buffer)
@@ -146,11 +149,12 @@ private:
 //				GetState()->Overhead -= PageSize;
 			}
 			T* Page = (T*)mmap(0, PageSize, PROT_READ | PROT_WRITE, MAP_SHARED, Handle, NumPages * PageSize);
-#elif PLATFORM_WINDOWS
+#elif else
 			T* Page;
 
 
-
+			if (Buffer)
+				Handle->Serialize((uint8*)Sync, (Begin - Sync) * sizeof(T));
 
 			if (bAutoDrop)
 			{
@@ -165,55 +169,18 @@ private:
 				Page = (T*)FGenericPlatformInternalAllocator::Malloc(PageSize);
 			}
 
-			//if (Buffer)
-			//{
-			//	if (!bAutoDrop)
-			//	{
-			//		FMemory::Memcpy(Buffer, ShadowBuffer, PageSize);
-			//	}
-
-			//	UnmapViewOfFile(Buffer);
-			//	//GetState()->Overhead -= PageSize;
-			//	CloseHandle(Handle);
-
-
-			//}
-
-
-			//LARGE_INTEGER LI;
-			//LI.QuadPart = (NumPages + 1) * PageSize;
-			//ensure(SetFilePointerEx(FileHandle, LI, NULL, FILE_BEGIN) != INVALID_SET_FILE_POINTER);
-			//if (SetEndOfFile(FileHandle) == 0)
-			//{
-			//	auto Err= GetLastError();
-			//	checkf(false, TEXT("errno: %d"), Err);
-			//}
-			//Handle = CreateFileMappingA(FileHandle, NULL, PAGE_READWRITE, LI.HighPart, LI.LowPart, NULL);
-			//checkf(Handle != INVALID_HANDLE_VALUE && Handle != 0, TEXT("errno: %d"), GetLastError());
-
-			//LI.QuadPart = NumPages * PageSize;
-			//T* Page = (T*)MapViewOfFile(Handle, FILE_MAP_ALL_ACCESS, LI.HighPart, LI.LowPart, PageSize);
-			//checkf(Page, TEXT("errno: %d"), ::GetLastError());
-			//if (!bAutoDrop)
-			//{
-			//	//ShadowBuffer = (T*)malloc(PageSize);
-			//	ShadowBuffer = (T*)FGenericPlatformInternalAllocator::Malloc(PageSize);
-			//	memset(ShadowBuffer, 0, PageSize);
-
-			//}
 #else
 			T* Page = 0;
 			return nullptr;
 #endif
-			//GetState()->bInternalMalloc.SetValue(false);
 
 			check(Page);
-//			GetState()->Overhead += PageSize;
 
 			NumPages++;
 
 			Buffer = Page;
 			Begin = Page;
+			Sync = Page;
 			End = (T*)((uint8*)Begin + PageSize);
 
 		}
@@ -228,33 +195,39 @@ public:
 		FScopeLock Lock(&SharedMutex);
 		auto Data = Malloc(Size);
 		FMemory::Memcpy(Data, Elems,  Size * sizeof(T));
-#if PLATFORM_WINDOWS
-		Handle->Serialize((uint8*)Elems, Size * sizeof(T));
-#endif
+
 		return Data;
 	}
 
 	void WriteOnly(const T* Elems, uint32 Size)
 	{
-#if PLATFORM_WINDOWS
-		FScopeLock Lock(&SharedMutex);
-		Handle->Serialize((uint8*)Elems, Size * sizeof(T));
-#else
 		FScopeLock Lock(&SharedMutex);
 		auto Data = Malloc(Size);
 		FMemory::Memcpy(Data, Elems, Size * sizeof(T));
+	}
+
+	void Flush()
+	{
+#if USING_MAPPED_FILE
+		if (Buffer)
+		{
+			FScopeLock Lock(&SharedMutex);
+			Handle->Serialize((uint8*)Sync, (Begin - Sync) * sizeof(T));
+			Sync = Begin;
+		}
 #endif
 	}
 
 private:
 	T* Buffer = 0;
 	T* Begin = 0;
+	T* Sync = 0;
 	T* End = 0;
 	uint64 PageSize = 0;
 	uint32 NumPages = 0;
-#if PLATFORM_WINDOWS
+#if USING_MAPPED_FILE
 	TSharedPtr<FArchive> Handle;
-#elif PLATFORM_IOS || PLATFORM_ANDROID
+#else
 	int Handle = 0;
 #endif
 	FCriticalSection SharedMutex;
@@ -326,6 +299,14 @@ uint32 GetTypeHash(const TraceKey& Key)
 	return FCrc::MemCrc32(Key.Trace + 1, Key.Trace[0] * sizeof(int64));
 }
 
+struct FunctionInfo
+{
+	DWORD64 Address;
+	DWORD64 AddressEnd;
+
+	DWORD64 Base;
+	PRUNTIME_FUNCTION Info;
+};
 
 struct AllocTrackEnvironment
 {
@@ -347,12 +328,60 @@ struct AllocTrackEnvironment
 	FCriticalSection CustomMutex;
 	std::atomic_uint32_t FrameCount = 1;
 	std::atomic_uint32_t UnrecordSize = 0;
+
+	TArray<FunctionInfo> FunctionInfos;
 };
 
 static AllocTrackEnvironment*& GetEnv()
 {
 	static AllocTrackEnvironment* Env = 0;
 	return Env;
+}
+
+static void FlushFunctionCaches()
+{
+#if PLATFORM_WINDOWS
+	auto Count = FPlatformStackWalk::GetProcessModuleCount();
+	TArray< FStackWalkModuleInfo> ModuleInfos;
+	ModuleInfos.SetNum(Count);
+	Count = FPlatformStackWalk::GetProcessModuleSignatures(ModuleInfos.GetData(), Count);
+
+	static TArray<FunctionInfo> Caches;
+	auto& FuncInfos = GetEnv()->FunctionInfos;
+
+	Caches.Reset();
+
+	DWORD64 Tail = 0;
+	PRUNTIME_FUNCTION Last = 0;
+	for (int i = 0; i < Count; ++i)
+	{
+		auto Begin = ModuleInfos[i].BaseOfImage;
+		auto End = Begin + ModuleInfos[i].ImageSize;
+		while (Begin < End)
+		{
+			DWORD64 Base;
+			auto Info = RtlLookupFunctionEntry(Begin, &Base, 0);
+			if (Info)
+			{
+				if (Last != Info)
+				{
+					Caches.Add({ Info->BeginAddress + Base,Info->EndAddress + Base,Base, Info });
+					Last = Info;
+				}
+			}
+			Begin += 8;
+		}
+	}
+	Caches.Sort([](auto& A, auto& B){
+		if ( A.Address != B.Address)
+			return A.Address < B.Address;
+		return A.AddressEnd < B.AddressEnd;
+	});
+	Caches.Add({ Caches[Caches.Num() - 1].AddressEnd, 0, 0});
+
+
+	Swap(Caches, FuncInfos);
+#endif
 }
 
 
@@ -525,6 +554,10 @@ void FAllocationTracking::Initialize(const TCHAR* CmdLine, const TCHAR* InDir)
 			(*ModuleFile) << StrLen;
 			ModuleFile->Serialize(TCHAR_TO_ANSI(ModuleInfos[i].ImageName), StrLen);
 		}
+
+
+		FlushFunctionCaches();
+
 #endif
 	}
 
@@ -542,23 +575,29 @@ void FAllocationTracking::Initialize(const TCHAR* CmdLine, const TCHAR* InDir)
 		if (GetState()->bExternalTracker)
 		{
 			FGenericPlatformExternalTracker::Start(+[](const void* Ptr, unsigned int Size, unsigned int Frame, unsigned long long* Stack) {
-				TrackAllocationImpl(Ptr, Size, Frame, ::GetCurrentStackId(Stack));
-				});
+				if (Stack != nullptr)
+					TrackAllocationImpl(Ptr, Size, Frame, ::GetCurrentStackId(Stack));
+				else
+					TrackFree(Ptr, 0);
+			}, GetState()->bTrackVM);
 		}
 
-		if (GetState()->bHook)
-			FGenericPlatformHook::StartHooking(FAllocationTracking::TrackAllocation, FAllocationTracking::TrackFree);
-		else
+		if ( !GetState()->bTrackVM || !GetState()->bExternalTracker)
 		{
+			if (GetState()->bHook)
+				FGenericPlatformHook::StartHooking(FAllocationTracking::TrackAllocation, FAllocationTracking::TrackFree, GetState()->bTrackVM);
+			else
+			{
 #if ENABLE_MEM_TRACKER
-			GMemTrackerAllocEvent = +[](const void* Ptr, SIZE_T Size) {
-				FAllocationTracking::TrackAllocation(Ptr, Size, 0);
-				};
+				GMemTrackerAllocEvent = +[](const void* Ptr, SIZE_T Size) {
+					FAllocationTracking::TrackAllocation(Ptr, Size, 0);
+					};
 
-			GMemTrackerFreeEvent = +[](const void* Ptr) {
-				FAllocationTracking::TrackFree(Ptr, 0);
-				};
+				GMemTrackerFreeEvent = +[](const void* Ptr) {
+					FAllocationTracking::TrackFree(Ptr, 0);
+					};
 #endif
+			}
 		}
 
 	}
@@ -581,40 +620,67 @@ static int FastCaptureBackTraceOnWin64(uint64* BackTrace, uint32 MaxDepth)
 
 	UINT iFrame;
 	UINT nFrames = MaxDepth;
+	UINT Skip = 3;
+	auto& Infos = GetEnv()->FunctionInfos;
 	for (iFrame = 0; iFrame < nFrames; iFrame++)
 	{
 		DWORD64 ImageBase;
-		PRUNTIME_FUNCTION pFunctionEntry = RtlLookupFunctionEntry(ContextRecord.Rip, &ImageBase, NULL);
+		auto Address = ContextRecord.Rip;
 
-		if (pFunctionEntry == NULL)
-			break;
+		PRUNTIME_FUNCTION pFunctionEntry = 0;
+		auto Pos = Algo::UpperBound(Infos, Address,[](auto& A, auto& B){
+			return A < B.Address;
+		});
+
+		if (Pos > 0 && Pos < Infos.Num())
+		{
+			auto& Info = Infos[Pos - 1];
+			auto& Info2 = Infos[Pos ];
+			if (Address <= Info.AddressEnd)
+			{
+				pFunctionEntry = Info.Info;
+				ImageBase = Info.Base;
+			}
+			else if (Info2.Address == Address)
+			{
+				pFunctionEntry = Info2.Info;
+				ImageBase = Info2.Base;
+			}
+		}
+		
+		if (pFunctionEntry == 0 || pFunctionEntry->BeginAddress == 0)
+		{
+			pFunctionEntry = RtlLookupFunctionEntry(Address, &ImageBase, 0);
+			if (pFunctionEntry == 0)
+				break;
+
+		}
+
+
 
 		PVOID HandlerData;
 		DWORD64 EstablisherFrame;
 		RtlVirtualUnwind(UNW_FLAG_NHANDLER,
 			ImageBase,
-			ContextRecord.Rip,
+			Address,
 			pFunctionEntry,
 			&ContextRecord,
 			&HandlerData,
 			&EstablisherFrame,
 			NULL);
 
-		BackTrace[iFrame] = ContextRecord.Rip;
+		if (ContextRecord.Rip == 0)
+			break;
+
+		if (iFrame >= Skip)
+			BackTrace[iFrame - Skip] = ContextRecord.Rip;
 	}
-	return iFrame - 1;
+	return iFrame - 1 - Skip;
 }
 #endif
 
 int GetCurrentStackId(uint64* Stack)
 {
-	constexpr int skip_num = 0;
-
-	if (Stack[0] <= skip_num)
-		return -1;
-
-	Stack[0] -= skip_num;
-	FMemory::Memmove(Stack + 1, Stack + 1 + skip_num, Stack[0] * sizeof(uint64));
 
 	TraceKey Key(Stack);
 
@@ -623,9 +689,9 @@ int GetCurrentStackId(uint64* Stack)
 	int StackId = 0;
 
 	{
+		auto HashValue = GetTypeHash(Key);
 		FScopeLock Lock(&Env.TraceMutex);
-		//auto TraceRet = Env.TraceMap.find(Key);
-		auto TraceRet = Env.TraceMap.Find(Key);
+		auto TraceRet = Env.TraceMap.FindByHash(HashValue,Key);
 
 		static uint32 StackIndex = 0;
 		if (TraceRet == nullptr)
@@ -940,6 +1006,11 @@ void FAllocationTracking::UpdateFrame()
 		FScopeLock Lock(&GetRHIMutex());
 		GetEnv()->RHIFile->Flush();
 	}
+
+
+	GetEnv()->Allocations->Flush();
+	GetEnv()->Deallocations->Flush();
+	GetEnv()->MappedStacks->Flush();
 }
 
 static void TakeSnapshot(const FString& Name)
@@ -977,124 +1048,10 @@ static FAutoConsoleCommand AllocationTrackingDisable(TEXT("alloc.disable"), TEXT
 	}
 }));
 
-//#include <sstream>
-//#include <iomanip>
-//
-//THIRD_PARTY_INCLUDES_START
-//#define _NO_CVCONST_H
-//#include <DbgHelp.h>
-//THIRD_PARTY_INCLUDES_END
-//
-//
-//
-//static FAutoConsoleCommand AllocationTrackingGenerateSymbols(TEXT("alloc.gensymbols"), TEXT(""), FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
-//{
-//
-//	auto& Env = *GetEnv();
-//
-//	
-//
-//	{
-//		auto& FileMgr = IFileManager::Get();
-//		{
-//			TSharedPtr<FArchive> ModuleFile = MakeShareable<FArchive>(FileMgr.CreateFileWriter(*FPaths::Combine(GetFolderPath(), TEXT("modules")), FILEWRITE_AllowRead));
-//		
-//			int32 Count = 1;
-//			(*ModuleFile) << Count;
-//			uint64 BaseOfImage = 0;
-//			(*ModuleFile) << BaseOfImage;
-//			uint64 Size = (-1)>> 1;
-//
-//			(*ModuleFile) << Size;
-//
-//
-//			if (Count == 0)
-//			{
-//				UE_LOG(LogCore, Warning, TEXT("no modules found."));
-//			}
-//			(*ModuleFile) << Count;
-//			char Name[] = "Total";
-//			int Len = FCStringAnsi::Strlen(Name);
-//			(*ModuleFile) << Len;
-//			ModuleFile->Serialize(Name, Len);
-//		}
-//	}
-//
-//	auto Count = FPlatformStackWalk::GetProcessModuleCount();
-//	TArray< FStackWalkModuleInfo> ModuleInfos;
-//	ModuleInfos.SetNum(Count);
-//	Count = FPlatformStackWalk::GetProcessModuleSignatures(ModuleInfos.GetData(), Count);
-//
-//
-//	if (!SymInitialize(GetCurrentProcess(), NULL, false)) {
-//		return;
-//	}
-//
-//	static TArray<TPair<ULONG64, std::string>> symbols;
-//	symbols.Empty();
-//
-//	for (int i = 0; i < Count; ++i)
-//	{
-//		DWORD64 baseAddress = SymLoadModuleEx(
-//			GetCurrentProcess(),
-//			NULL,
-//			TCHAR_TO_ANSI(ModuleInfos[i].ImageName),
-//			NULL,
-//			0,
-//			0,
-//			NULL,
-//			0
-//		);
-//
-//		if (baseAddress == 0) {
-//			HRESULT hr = GetLastError();
-//			continue;
-//		}
-//
-//		if (!SymEnumSymbolsEx(GetCurrentProcess(), baseAddress, NULL, +[](PSYMBOL_INFO pSymInfo, ULONG SymbolSize, PVOID UserContext)->BOOL
-//			{
-//				DWORD sym_tag = 0;
-//
-//				SymGetTypeInfo(GetCurrentProcess(), pSymInfo->ModBase, pSymInfo->TypeIndex, TI_GET_SYMTAG, &sym_tag);
-//				if (sym_tag == SymTagFunctionType)
-//				{
-//					symbols.Emplace(pSymInfo->Address, pSymInfo->Name);
-//				}
-//				else
-//				{
-//					//std::cout << pSymInfo->Name << std::endl;
-//				}
-//
-//				return true;
-//			}, 0, 0)) {
-//
-//		}
-//
-//	}
-//	SymCleanup(GetCurrentProcess());
-//
-//	auto File = IFileManager::Get().CreateFileWriter(*FPaths::Combine(GetFolderPath(), TEXT("symbols")), FILEWRITE_AllowRead);
-//
-//
-//	std::stringstream content;
-//
-//	for (auto& Item : symbols)
-//	{
-//		//if (LastName != Item.Value)
-//		{
-//			//LastName = Item.Value;
-//			content << Item.Key << " " << Item.Value << std::endl;
-//		}
-//	}
-//
-//
-//
-//	auto Str = content.str();
-//
-//	File->Serialize((void*)Str.c_str(), Str.length());
-//
-//	File->Flush();
-//	delete File;
-//
-//}));
+static FAutoConsoleCommand FlushFunctionInfoCmd(TEXT("alloc.acc"), TEXT(""), FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+{
+	{
+		FlushFunctionCaches();
+	}
+}));
 

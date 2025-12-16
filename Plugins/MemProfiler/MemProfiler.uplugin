@@ -5,7 +5,7 @@
 	"FriendlyName": "",
 	"Description": "",
 	"Category": "",
-	"CreatedBy": "",
+	"CreatedBy": "baruxu",
 	"CreatedByURL": "",
 	"DocsURL": "",
 	"MarketplaceURL": "",
@@ -22,8 +22,7 @@
 			"BlacklistTargets": [ "Server" ],
 			"BlacklistPlatforms": [
 				"Linux"
-			],
-			"WhitelistTargets": [ "Game", "Client" ]
+			]
 		}
 
 	],

@@ -102,7 +102,7 @@ FORCEINLINE void syscall_hooker(uint32_t type_flags, uintptr_t zone_ptr, uintptr
 }
 
 
-void FIOSHook::StartHooking(MallocEvent OnMalloc, FreeEvent OnFree)
+void FIOSHook::StartHooking(MallocEvent OnMalloc, FreeEvent OnFree, bool bVM)
 {
 	OnMallocEvent = OnMalloc;
 	OnFreeEvent = OnFree;

@@ -8,7 +8,7 @@ class FIOSHook
 {
 public:
 
-	static void StartHooking(MallocEvent OnMalloc, FreeEvent OnFree);
+	static void StartHooking(MallocEvent OnMalloc, FreeEvent OnFree, bool bVM);
 	static void StopHooking();
 };
 
