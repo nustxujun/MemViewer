@@ -1275,7 +1275,6 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
     uint32_t num_frames = 0;
     uint32_t num_allocs;
     std::vector<ThreadPool::TaskHandle> handles;
-    auto num_total_allocs = alloc_infos.size();
 
 
     auto process_alloc_fut = async_run([&]()
@@ -1284,7 +1283,8 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
 
         alloc_fut.Sync();
 
-        
+        auto num_total_allocs = alloc_infos.size();
+
         auto stride = std::max<uint64_t>(1'000'000, num_total_allocs / std::thread::hardware_concurrency() / 8);
         std::mutex mutex;
 
@@ -1293,15 +1293,15 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
             auto begin = i;
             auto end = std::min(num_total_allocs, i + stride);
 
-            while (end + 1 < num_total_allocs)
+            while (end < num_total_allocs)
             {
-                if (alloc_infos[end].ptr == alloc_infos[end + 1].ptr)
+                if (alloc_infos[end - 1].ptr == alloc_infos[end].ptr)
                     end++;
                 else
                     break;
             }
 
-            i += end - begin;
+            i = end;
 
             auto handle = ThreadPool::PushTask([&, begin, end]() {
                 auto search_begin = dealloc_infos.begin();
