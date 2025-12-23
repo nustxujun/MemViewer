@@ -14,7 +14,8 @@ cd MemoryTraceParser
 rm -rf build
 mkdir build
 cd build
-cmake .. -G Xcode
+# cmake .. -G Xcode
+cmake ..
 cmake --build . --config Release
 
 if [ $? -ne 0 ]; then
@@ -22,7 +23,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-cp -f Release/MemoryTraceParser ../../Release/MemoryTraceParser
+cp -f MemoryTraceParser ../../Release/MemoryTraceParser
 
 cd ../..
 pyinstaller --onefile "Tools/Dump/dump_ios/dump_ios.py" --distpath "Release" --workpath "Temp/build"

@@ -441,7 +441,7 @@ int ParseSymbolByVA(const std::vector<uint64_t>& addrs, std::vector<ModuleInfo>&
     for (auto& item : sorted_addrs)
     {
         auto addr_list = std::span(item.second);
-        std::sort(std::execution::par, addr_list.begin(), addr_list.end(), [](auto& a, auto& b){return a.addr< b.addr;});
+        std::sort(std::execution::par, addr_list.begin(), addr_list.end(), [](const auto& a,const auto& b){return a.addr< b.addr;});
         task_list.push_back({ item.first, addr_list.subspan(0, addr_list.size()) });
 
     }

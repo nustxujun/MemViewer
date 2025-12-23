@@ -165,9 +165,11 @@ def main():
         if config.has_option("dump",'tag_name'):
             tag_name=config.get("dump",'tag_name')
         if config.has_option("dump",'force_generate_symbols'):
-            force_generate_symbols=config.get("dump",'force_generate_symbols')
-        if config .has_option("dump",'launch_app'):
-            launch_app=config.get("dump",'launch_app')
+            force_generate_symbols=config.get("dump",'force_generate_symbols') == "True"
+        if config.has_option("dump",'launch_app'):
+            launch_app=config.get("dump",'launch_app') == 'True'
+        if config.has_option("dump",'cmdline'):
+            cmdline=config.get("dump",'cmdline')
         
         if config.has_option("dump",'upload_api'):
             global upload_api
@@ -212,8 +214,17 @@ def main():
         os._exit(1)
 
 
+
     if launch_app:
         print(f"platform : {platform.system()}")
+
+        if cmdline:
+            print(f"launch app with cmdline: {cmdline}")
+            tidevice_wrap.push_data(device, bundleid,"/Documents/uecommandline.txt", cmdline.encode('utf-8'))
+
+        if tidevice_wrap.is_file_exist(device,bundleid, "/Documents/MemTrace"):
+            tidevice_wrap.rmtree(device, bundleid, "/Documents/MemTrace")
+
         if platform.system() == 'Darwin':
             envs = '{"UE4_FORCE_MALLOC_ANSI":"1"}'
             cmd = f"xcrun devicectl device process launch --device {device_udid} -e '{envs}' --console --terminate-existing -q {bundleid}"

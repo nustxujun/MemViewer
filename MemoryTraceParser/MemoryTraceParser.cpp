@@ -50,7 +50,7 @@ public:
         {
             while (*state != DONE)
             {
-                ::_sleep(0);
+                std::this_thread::yield();
             }
         }
 
@@ -78,7 +78,7 @@ public:
         while (tasks.size() >= limit)
         {
             lock.unlock();
-            ::_sleep(0);
+            std::this_thread::yield();
             lock.lock();
         }
         TaskHandle handle;
@@ -102,7 +102,7 @@ public:
                     if (tasks.empty())
                     {
                         lock.unlock();
-                        ::_sleep(0);
+                        std::this_thread::yield();
                         lock.lock();
                     }
                     else
@@ -1291,7 +1291,7 @@ static void parse(const TraceFiles& file_names, const std::string& output_dir)
         for (uint64_t i = 0; i < num_total_allocs;)
         {
             auto begin = i;
-            auto end = std::min(num_total_allocs, i + stride);
+            auto end = std::min<uint64_t>(num_total_allocs, i + stride);
 
             while (end < num_total_allocs)
             {
