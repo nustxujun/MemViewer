@@ -125,8 +125,10 @@ public:
 
 	~MappedAlloc()
 	{
+#if !USING_MAPPED_FILE
 		if (Buffer && Begin != Buffer)
 			Handle->Serialize((uint8*)Buffer, (Begin - Buffer) * sizeof(T));
+#endif
 	}
 private:
 	T* Malloc(uint32 n = 1)
@@ -149,7 +151,7 @@ private:
 //				GetState()->Overhead -= PageSize;
 			}
 			T* Page = (T*)mmap(0, PageSize, PROT_READ | PROT_WRITE, MAP_SHARED, Handle, NumPages * PageSize);
-#elif else
+#else
 			T* Page;
 
 
@@ -168,10 +170,6 @@ private:
 			{
 				Page = (T*)FGenericPlatformInternalAllocator::Malloc(PageSize);
 			}
-
-#else
-			T* Page = 0;
-			return nullptr;
 #endif
 
 			check(Page);
@@ -208,7 +206,7 @@ public:
 
 	void Flush()
 	{
-#if USING_MAPPED_FILE
+#if !USING_MAPPED_FILE
 		if (Buffer)
 		{
 			FScopeLock Lock(&SharedMutex);
@@ -225,7 +223,7 @@ private:
 	T* End = 0;
 	uint64 PageSize = 0;
 	uint32 NumPages = 0;
-#if USING_MAPPED_FILE
+#if !USING_MAPPED_FILE
 	TSharedPtr<FArchive> Handle;
 #else
 	int Handle = 0;
@@ -298,15 +296,17 @@ uint32 GetTypeHash(const TraceKey& Key)
 {
 	return FCrc::MemCrc32(Key.Trace + 1, Key.Trace[0] * sizeof(int64));
 }
+#if PLATFORM_WINDOWS
 
 struct FunctionInfo
 {
-	DWORD64 Address;
-	DWORD64 AddressEnd;
+	uint64 Address;
+	uint64 AddressEnd;
 
 	DWORD64 Base;
 	PRUNTIME_FUNCTION Info;
 };
+#endif
 
 struct AllocTrackEnvironment
 {
@@ -328,8 +328,10 @@ struct AllocTrackEnvironment
 	FCriticalSection CustomMutex;
 	std::atomic_uint32_t FrameCount = 1;
 	std::atomic_uint32_t UnrecordSize = 0;
+#if PLATFORM_WINDOWS
 
 	TArray<FunctionInfo> FunctionInfos;
+#endif
 };
 
 static AllocTrackEnvironment*& GetEnv()
@@ -571,7 +573,7 @@ void FAllocationTracking::Initialize(const TCHAR* CmdLine, const TCHAR* InDir)
 
 	if (IsCapturingStack() && GetState()->bMallocTrace)
 	{
-
+#if !PLATFORM_IOS
 		if (GetState()->bExternalTracker)
 		{
 			FGenericPlatformExternalTracker::Start(+[](const void* Ptr, unsigned int Size, unsigned int Frame, unsigned long long* Stack) {
@@ -581,7 +583,7 @@ void FAllocationTracking::Initialize(const TCHAR* CmdLine, const TCHAR* InDir)
 					TrackFree(Ptr, 0);
 			}, GetState()->bTrackVM);
 		}
-
+#endif
 		if ( !GetState()->bTrackVM || !GetState()->bExternalTracker)
 		{
 			if (GetState()->bHook)
@@ -761,11 +763,13 @@ void FAllocationTracking::TrackAllocation(const void* Ptr, uint32 Size, uint32 V
 	if (Ptr == 0)
 		return;
 
+#if !PLATFORM_IOS
 	if (GetState()->bExternalTracker)
 	{
 		FGenericPlatformExternalTracker::TiggerAlloc(Ptr, Size, GetCurrentTime());
 	}
 	else
+#endif
 	{
 		int StackId = GetCurrentStackId();
 	
