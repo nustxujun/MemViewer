@@ -43,9 +43,13 @@ def get_platform_info():
     )
 
     VC = ""
+    command = ['powershell', '-Command', 
+               'Get-WmiObject Win32_VideoController | Select-Object -ExpandProperty Name']
+    result = subprocess.run(command, capture_output=True, text=True)
+    
     for line in result.stdout.splitlines():
         if "NVIDIA" in line or "AMD" in line:
-            VC = line.replace(" ","")
+            VC = line.strip().replace(" ","_")
             break
     return VC, OS
 
@@ -180,6 +184,9 @@ def main():
         # os._exit(1)
 
     info(f"symbols path: {symbols_path}")
+
+    print(f"killing {exec_name} ...")
+    os.system(f'taskkill /F /IM {exec_name}')
 
     print("dumping ...")
     for root, dirs, files in os.walk(trace_path):
