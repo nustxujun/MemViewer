@@ -55,13 +55,6 @@ void TraceView::Show()
 	}
 
 
-	if (ImGui::BeginMainMenuBar())
-	{
-		
-		ImGui::EndMainMenuBar();
-	}
-
-
 
 	ImGuiTableFlags flags = ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_Resizable   | ImGuiTableFlags_ContextMenuInBody;
 

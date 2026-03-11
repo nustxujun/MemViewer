@@ -99,9 +99,12 @@ void TimelineView::InitializeImpl()
 		auto alloc_count = allocs.size();
 		auto thread_count = std::thread::hardware_concurrency() ;
 
-		std::unique_ptr<std::atomic_int64_t[]> datas = std::move(std::make_unique<std::atomic_int64_t[]>(count));
-		ParallelTask(5000, alloc_count, [&](uint64_t begin, uint64_t end){
-
+		std::vector<int64_t> datas;
+		datas.resize(count, 0);
+		std::mutex mutex;
+		ParallelTask(10000, alloc_count, [&](uint64_t begin, uint64_t end){
+			std::vector<int64_t> local_datas;
+			local_datas.resize(count, 0);
 			for (auto i = begin; i < end; ++i)
 			{
 				auto& alloc = allocs[i];
@@ -112,8 +115,15 @@ void TimelineView::InitializeImpl()
 				for (int i = alloc.start; i ALLOC_END_CMP(<= , < ) end_time; ++i)
 				{
 					//size_vec[i - range.begin] += alloc.size;
-					datas[i - range.begin].fetch_add(alloc.size,std::memory_order_relaxed);
+					//datas[i - range.begin].fetch_add(alloc.size,std::memory_order_relaxed);
+					local_datas[i-range.begin] += alloc.size;
 				}
+			}
+
+			std::lock_guard<std::mutex> lock(mutex);
+			for (int i = 0; i < count; ++i)
+			{
+				datas[i] += local_datas[i];
 			}
 		
 		});
@@ -295,7 +305,8 @@ void TimelineView::CalCategories()
 		auto alloc_count = allocs.size();
 
 		std::mutex mutex;
-
+		{
+		Counter c("timeline category");
 		ParallelTask(5000, alloc_count, [&](uint64_t begin, uint64_t end) {
 			auto MatchCategory = [](auto& str, auto& cats)->uint32_t
 				{
@@ -341,8 +352,8 @@ void TimelineView::CalCategories()
 				for (int j = info.start; j < end; ++j)
 					cate_datas[cat_idx][j - range.begin].fetch_add(info.size, std::memory_order_relaxed);
 			}
-			});
-
+		});
+		}
 		auto colors = get_colors(categories.size());
 		for (int i = 0; i < categories.size(); ++i)
 		{

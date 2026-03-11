@@ -15,6 +15,7 @@
 #include "CustomObj.h"
 
 #include "TraceView.h"
+#include "ObjRefsView.h"
 
 #include <windows.h>
 #include <tchar.h>
@@ -33,6 +34,7 @@ static int selected_mode = 1;
 //RHIView RhiView("RhiResourceView");
 //SnapshotView SnView("SnapshotView");
 //CustomObj CustomView("CustomObjView");
+static ObjRefsView objRefsView;
 
 
 
@@ -98,6 +100,26 @@ extern int GetMode()
 void ShowMainWindow() 
 {
     ProcessTasks();
+
+    static bool show_objrefs = false;
+
+    if (ImGui::BeginMainMenuBar())
+    {
+        if (ImGui::MenuItem("objrefs"))
+        {
+            show_objrefs = !show_objrefs;
+        }
+        
+        ImGui::EndMainMenuBar();
+    }
+    
+    // 显示ObjRefsView窗口
+    if (show_objrefs)
+    {
+        objRefsView.Show();
+    }
+
+
 
 
     static char filter[1024];
