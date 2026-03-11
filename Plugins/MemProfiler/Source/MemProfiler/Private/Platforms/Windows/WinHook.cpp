@@ -119,7 +119,7 @@ BOOL WINAPI MyVirtualFree(LPVOID lpAddress, SIZE_T dwSize, DWORD dwFreeType)
 {
 	BEGIN_HOOK();
 	auto Result = OriginalVirtualFree(lpAddress, dwSize, dwFreeType);
-	if ((dwFreeType & MEM_DECOMMIT) == 0 || IsInternalOpt())
+	if ((dwFreeType & (MEM_DECOMMIT | MEM_RELEASE)) == 0 || IsInternalOpt())
 	{
 		return Result;
 	}

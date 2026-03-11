@@ -296,7 +296,7 @@ void FWindowsExternalTracker::Start(AllocEvent Alloc, bool bVM)
 					}
 					else
 					{
-						if ((Data->Flags & MEM_DECOMMIT ) == 0)
+						if ((Data->Flags & (MEM_DECOMMIT  | MEM_RELEASE)) == 0)
 							return;
 						ProcessFunc((const void*)Data->BaseAddress, Data->RegionSize, FAllocationTracking::GetCurrentFrame(), nullptr);
 					}
