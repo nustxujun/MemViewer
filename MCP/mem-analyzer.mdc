@@ -1,0 +1,99 @@
+---
+description: MemAnalyzer MCP — 内存追踪分析服务的工具使用指南
+alwaysApply: true
+---
+
+# MemAnalyzer MCP
+
+基于 MCP (Model Context Protocol) 的 UE 内存追踪分析服务，解析 `.memtrace` 文件并提供内存分配、调用栈、分类、时间线、对象、RHI 资源等维度的分析能力。
+
+## 工具一览
+
+| 工具 | 说明 |
+|------|------|
+| `load_trace` | 加载 `.memtrace` 文件（自动预处理并缓存） |
+| `get_trace_info` | 当前 trace 基本信息（帧数、分配数等） |
+| `set_frame_range` | 设置分析帧范围，触发区间数据重算 |
+| `get_memory_summary` | 内存用量摘要（used/available/overhead） |
+| `get_checkpoints` | checkpoint 列表 |
+| `get_categories` | 按分类统计内存分配 |
+| `get_subcategories` | 指定分类的子分类明细 |
+| `get_timeline` | 时间线数据（trk/phy/lua 等序列） |
+| `get_timeline_categories` | 分类维度的时间线 |
+| `get_allocation_callstack` | 指定节点的分配调用栈 |
+| `get_callstack_top` | 按内存大小排序的 Top 调用栈节点 |
+| `get_callstack_children` | 调用栈子节点 |
+| `get_callstack_path` | 节点到根的完整路径 |
+| `search_callstack` | 关键字搜索调用栈 |
+| `get_node_info` | 单个调用栈节点详情 |
+| `get_object_classes` | UObject 类统计（增删计数） |
+| `get_objects` | 按类筛选对象 |
+| `get_rhi_summary` | RHI 资源汇总（纹理/缓冲区数量与大小） |
+| `get_rhi_resources` | RHI 资源筛选详情 |
+| `compare_traces` | 对比两个 trace 并计算 diff |
+| `get_tool_stats` | 工具调用统计 |
+
+## 分析工作流
+
+### 1. 加载 → 概览
+
+```
+load_trace → get_trace_info → get_memory_summary → get_checkpoints
+```
+
+先加载 trace，获取帧数、分配总量等概览信息。checkpoint 帮助定位关键时间点。
+
+### 2. 聚焦区间
+
+```
+set_frame_range → get_memory_summary (区间内)
+```
+
+根据 checkpoint 或帧号缩小分析范围。设置范围后所有 range-dependent 数据自动重算。
+
+### 3. 定位内存大户
+
+**分类维度**（推荐首选）：
+
+```
+get_categories → get_subcategories → get_allocation_callstack
+```
+
+**调用栈维度**：
+
+```
+get_callstack_top → get_callstack_children / get_callstack_path
+search_callstack (关键字定位)
+```
+
+### 4. 专项分析
+
+- **对象泄漏**：`get_object_classes` → `get_objects`（关注 add > delete 的类）
+- **GPU 资源**：`get_rhi_summary` → `get_rhi_resources`（纹理/缓冲区过大排查）
+- **趋势观察**：`get_timeline` / `get_timeline_categories`
+
+### 5. Trace 对比
+
+```
+compare_traces(path1, path2) → 用 source="compare" 调用其他工具分析 diff
+```
+
+## 关键约定
+
+- **必须先 `load_trace`**：除 `load_trace` 和 `get_tool_stats` 外，所有工具都需要已加载 trace。
+- **type 参数**：`"native"` 分析 C++ 分配，`"lua"` 分析 Lua 分配，默认 `"native"`。
+- **source 参数**：`"current"` 当前 trace，`"compare"` 对比数据（需先 `compare_traces`）。
+- **node_index**：调用栈节点索引，从 `get_callstack_top`、`search_callstack` 等工具返回值中获取。
+- **分页**：`get_objects`、`get_rhi_resources` 等支持 `limit` + `offset` 分页。
+- **时间线降采样**：`max_points` 控制返回数据点数，默认 500，过大会增加响应体积。
+
+## 配置文件
+
+位于 `MCP/configs/`：
+
+| 文件 | 用途 |
+|------|------|
+| `category_config.ini` | Native 分类规则 |
+| `lua_category_config.ini` | Lua 分类规则 |
+| `rhi_config.ini` | RHI 资源分类 |
+| `llm_config.ini` | LLM 相关配置 |

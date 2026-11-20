@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "mem-analyzer": {
+      "command": "python",
+      "args": [
+        "MCP/server/server.py"
+      ]
+    }
+  }
+}

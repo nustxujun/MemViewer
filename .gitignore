@@ -4,3 +4,4 @@ Release/
 Temp/
 *.spec
 Tools/env/
+MCP/server/tools/__pycache__
