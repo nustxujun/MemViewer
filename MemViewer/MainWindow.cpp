@@ -1,5 +1,5 @@
 #include "MemViewer.h"
-#include "TraceParser.h"
+#include "CoreTypes.h"
 #include "imgui.h"
 #include "imgui/backends/imgui_impl_win32.h"
 #include "Concurrency.h"
@@ -11,11 +11,9 @@
 #include "RHIView.h"
 #include "Snapshot.h"
 #include "Utils.h"
-#include "FrameParser.h"
 #include "CustomObj.h"
 
 #include "TraceView.h"
-#include "ObjRefsView.h"
 
 #include <windows.h>
 #include <tchar.h>
@@ -34,7 +32,6 @@ static int selected_mode = 1;
 //RHIView RhiView("RhiResourceView");
 //SnapshotView SnView("SnapshotView");
 //CustomObj CustomView("CustomObjView");
-static ObjRefsView objRefsView;
 
 
 
@@ -101,23 +98,13 @@ void ShowMainWindow()
 {
     ProcessTasks();
 
-    static bool show_objrefs = false;
 
     if (ImGui::BeginMainMenuBar())
     {
-        if (ImGui::MenuItem("objrefs"))
-        {
-            show_objrefs = !show_objrefs;
-        }
         
         ImGui::EndMainMenuBar();
     }
     
-    // 显示ObjRefsView窗口
-    if (show_objrefs)
-    {
-        objRefsView.Show();
-    }
 
 
 

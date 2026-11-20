@@ -2,7 +2,7 @@
 //#include "resource.h"
 //#include "Utils.h"
 //#include "imgui.h"
-//#include "TraceParser.h"
+#include "CoreTypes.h"
 //#include "Concurrency.h"
 //#include <mutex>
 //#include <atomic>

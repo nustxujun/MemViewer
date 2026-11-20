@@ -1,6 +1,5 @@
 #include "FrequenceView.h"
-#include "TraceParser.h"
-#include "FrameParser.h"
+#include "CoreTypes.h"
 #include "TraceInstance.h"
 #include "MemViewer.h"
 #include "Utils.h"

@@ -5,7 +5,7 @@
 #include <vector>
 #include <array>
 
-#include "TraceParser.h"
+#include "CoreTypes.h"
 
 class CategoryView : public View
 {

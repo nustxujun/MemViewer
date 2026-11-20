@@ -1,5 +1,6 @@
 #include "TraceView.h"
 #include "TraceInstance.h"
+#include "Utils.h"
 #include "imgui/imgui.h"
 #include "Timeline.h"
 #include "CallstackView.h"

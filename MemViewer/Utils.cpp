@@ -2,21 +2,19 @@
 #include <Windows.h>
 #include <fstream>
 #include <filesystem>
-#include "TraceParser.h"
-#include "FrameParser.h"
 #include <sstream>
 #include <functional>
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
 #include <mutex>
 
-void print_log(std::string content)
+static void memviewer_print_log(const std::string& content)
 {
 	static std::mutex Mutex;
 	std::lock_guard<std::mutex> lock(Mutex);
-
 	std::cout << content << std::endl;
 }
+static struct _InitLog { _InitLog() { g_print_log_func = memviewer_print_log; } } _init_log;
 
 
 std::string get_or_create_default_file(int id, const char* path)
@@ -45,81 +43,6 @@ std::string get_or_create_default_file(int id, const char* path)
 	return config_path.string();
 }
 
-
-//static void visit_node(Node* node, int depth,const std::function<void(Node*, int)>& visitor)
-//{
-//	visitor(node, depth);
-//	for (auto& c : node->children)
-//	{
-//		visit_node(c, depth + 1, visitor);
-//	}
-//}
-
-//Node* make_current_snapshot()
-//{
-//	return CloneParsedNodes(GetFrameData());
-//}
-//
-//std::string make_snapshot_to_string(SnapshotInfos infos)
-//{
-//	std::stringstream ret;
-//	ret << "snapshot" << std::endl;
-//	ret << infos.name << std::endl;
-//	ret << infos.count << std::endl;
-//
-//	for (int i = 1; i < infos.count; ++i)
-//	{
-//		auto node = infos.root + i;
-//		uint32_t parent_offset = node->parent - infos.root;
-//		ret << std::format("{}|{}|{}|{}", parent_offset, node->name, node->basic_size, node->basic_count) << std::endl;
-//	}
-//
-//	return ret.str();
-//}
-//
-//SnapshotInfos make_snapshot_from_string(std::string content)
-//{
-//	SnapshotInfos infos;
-//	auto lines = split_string(std::move(content),"\n");
-//
-//
-//	if (lines[0].find("snapshot") == std::string::npos)
-//		return {};
-//
-//	infos.name = lines[1];
-//	infos.count = std::atoi(lines[2].c_str());
-//	
-//	infos.root = new Node[infos.count];
-//
-//	auto iter = lines.begin() + 3;
-//	auto end = lines.end();
-//
-//	auto node = infos.root + 1;
-//	infos.root->name = "root";
-//	for (; iter != end;++iter,node++)
-//	{
-//		auto parts = split_string(*iter, "|");
-//		if (parts.empty())
-//			continue;
-//
-//		int parent_offset = std::atoi(parts[0].c_str());
-//		int64_t size = std::atoll(parts[2].c_str());
-//		int64_t count = std::atoll(parts[3].c_str());
-//		node->basic_size = size;
-//		node->basic_count = count;
-//		node->name = parts[1];
-//		
-//		auto parent = infos.root + parent_offset;
-//		parent->children.push_back(node);
-//		node->parent = parent;
-//		
-//
-//	}
-//
-//	return infos;
-//}
-
-
 static std::string StringConverter(const std::string& str, UINT SrcCodePage, UINT DstCodePage)
 {
 	int wide_len = MultiByteToWideChar(SrcCodePage, 0, str.c_str(), -1, nullptr, 0);
@@ -135,14 +58,11 @@ static std::string StringConverter(const std::string& str, UINT SrcCodePage, UIN
 }
 
 std::string GBKToUTF8(const std::string& gbk_str) {
-
 	return StringConverter(gbk_str, CP_ACP, CP_UTF8);
-
 }
+
 std::string UTF8ToGBK(const std::string& utf_str) {
-
 	return StringConverter(utf_str, CP_UTF8, CP_ACP);
-
 }
 
 bool Spinner(const char* label, float radius, int thickness, const ImU32& color) {
@@ -162,7 +82,6 @@ bool Spinner(const char* label, float radius, int thickness, const ImU32& color)
 	if (!ImGui::ItemAdd(bb, id))
 		return false;
 
-	// Render
 	window->DrawList->PathClear();
 
 	int num_segments = 30;

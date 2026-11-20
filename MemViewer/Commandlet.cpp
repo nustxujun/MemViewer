@@ -6,7 +6,8 @@
 #include <functional>
 #include <filesystem>
 #include <fstream>
-#include "TraceParser.h"
+#include "Utils.h"
+#include "CoreTypes.h"
 #include "TraceInstance.h"
 #include "Concurrency.h"
 

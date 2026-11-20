@@ -1,43 +1,10 @@
 #pragma once
 
-#include "TraceParser.h"
-#include "FrameParser.h"
+#include "CoreTypes.h"
 
 #include <vector>
 #include <map>
 #include <future>
-struct FrameRange
-{
-	int begin;
-	int end;
-
-	int count()
-	{
-		return end - begin;
-	}
-};
-
-struct TraceData
-{ 
-	using Ptr = std::shared_ptr< TraceData>;
-	Calltree::Ptr calltree;
-	Calltree::Ptr lua_calltree;
-	std::vector<AllocInfo> allocs;
-	std::vector<AllocInfo> lua_allocs;
-	std::vector<TotalInfo> memoryinfos;
-	std::vector<ObjectInfo> objects;
-	std::vector< RhiInfo> rhis;
-	std::vector< Checkpoint> checkpoints;
-	std::vector<CustomData::Ptr> customs;
-
-	FrameRange max_range;
-	void ShrinkCalltree();
-	static bool ParseTraceFile(const std::string& path, TraceData* trace);
-	static void ParseRange(int begin, int end, const TraceData* trace, TraceData* range_trace);
-
-	static bool ParseTraceSpanFile(const std::string& path, TraceData* trace);
-	static bool SerializeTraceSpan(TraceData* trace, std::function<void(uint8_t*, int)>&& serialize,const bool saving);
-};
 
 class TraceInstanceBasic
 {
@@ -117,9 +84,6 @@ public:
 	static TraceInstance::Ptr Create(const std::string& path, std::function<void(Ptr)>&& callback = {});
 	static void ParseRange(int begin, int end, TraceInstance::Ptr trace);
 
-	//void parseAllocsRange(int begin, int end);
-	//void parseOthersRange(int begin, int end);
-
 	FrameRange getTraceRange(){return data->max_range;}
 	FrameRange getSelectRange(){return selected_range;}
 
@@ -154,5 +118,3 @@ private:
 	FrameRange selected_range;
 
 };
-
-

@@ -1,6 +1,5 @@
 //#include "BlockView.h"
-//#include "TraceParser.h"
-//#include "FrameParser.h"
+#include "CoreTypes.h"
 //#include "Utils.h"
 //#include "imgui/imgui.h"
 //#include "MemViewer.h"

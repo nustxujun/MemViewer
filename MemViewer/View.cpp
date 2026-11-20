@@ -1,4 +1,5 @@
 #include "View.h"
+#include "Utils.h"
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
 #include "TraceInstance.h"

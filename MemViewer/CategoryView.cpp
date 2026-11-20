@@ -1,8 +1,7 @@
 #include "CategoryView.h"
 #include "MemViewer.h"
 #include "Utils.h"
-#include "TraceParser.h"
-#include "FrameParser.h"
+#include "CoreTypes.h"
 #include "TraceInstance.h"
 #include "Concurrency.h"
 

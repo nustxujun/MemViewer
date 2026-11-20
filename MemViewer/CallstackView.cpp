@@ -1,7 +1,6 @@
 #include "CallstackView.h"
 #include "Utils.h"
-#include "FrameParser.h"
-#include "TraceParser.h"
+#include "CoreTypes.h"
 #include "TraceInstance.h"
 #include "imgui/imgui.h"
 

@@ -2,7 +2,7 @@
 
 
 #include "View.h"
-#include "TraceParser.h"
+#include "CoreTypes.h"
 #include "Component.h"
 #include <vector>
 

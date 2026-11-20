@@ -1,6 +1,5 @@
 #include "ObjectView.h"
-#include "TraceParser.h"
-#include "FrameParser.h"
+#include "CoreTypes.h"
 #include "MemViewer.h"
 #include "TraceInstance.h"
 #include "Utils.h"
